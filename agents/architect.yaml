@@ -21,7 +21,8 @@ system_prompt: |
   Правила:
   - arch_iterations = 2 → принудительный ARCHIVE
   - Мутация должна быть конкретной и обоснованной
-  - Формат: JSON
+  - Верни ТОЛЬКО сырой JSON без ```json```, без markdown, без пояснений.
+  - Формат: {"mutated_idea": {...}, "arch_iterations": N}
 
 output_schema:
   type: object

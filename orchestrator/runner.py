@@ -1,3 +1,4 @@
+import re
 import os
 import sys
 import json
@@ -86,6 +87,14 @@ def render_prompt(template: str, context: dict[str, Any]) -> str:
     return template
 
 
+def extract_json(text: str) -> Any:
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    return json.loads(text)
+
+
 def call_kilo(system_prompt: str, user_prompt: str, response_schema: dict | None = None) -> dict:
     if not KILO_API_KEY:
         print("ERROR: KILO_API_KEY is not set", file=sys.stderr)
@@ -114,8 +123,9 @@ def call_kilo(system_prompt: str, user_prompt: str, response_schema: dict | None
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
             try:
-                return json.loads(content)
-            except json.JSONDecodeError:
+                return extract_json(content)
+            except Exception as exc:
+                print(f"KILO_JSON_PARSE_ERROR attempt={attempt+1} model={MODEL} err={exc}", file=sys.stderr)
                 return {"raw": content}
         except requests.exceptions.ReadTimeout as exc:
             last_exc = exc
@@ -232,6 +242,7 @@ def run():
             state["ideas"] = bs_result.get("ideas", [])
             if not state["ideas"]:
                 print("ERROR: Brainstormer returned no ideas", file=sys.stderr)
+                print("Brainstormer raw result: " + json.dumps(bs_result, ensure_ascii=False)[:2000], file=sys.stderr)
                 save_state(state, "error", "no_ideas")
                 sys.exit(1)
 

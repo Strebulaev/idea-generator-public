@@ -12,12 +12,19 @@ system_prompt: |
   - 🟡 YELLOW: есть потенциальные проблемы, но они решаемы
   - 🔴 RED: фатальные пробелы, регуляторные блоки, патентные конфликты или нереализуемый scope
 
-  Формат: JSON с полями:
-  - idea_id: string
-  - verdict: GREEN | YELLOW | RED
-  - reasoning: string
-  - risks: array of string
-  - confidence: number (0-1)
+  Формат: ТОЛЬКО сырой JSON без ```json```, без markdown, без пояснений.
+  Структура:
+  {
+    "verdicts": [
+      {
+        "idea_id": "string",
+        "verdict": "GREEN|YELLOW|RED",
+        "reasoning": "string",
+        "risks": ["string"],
+        "confidence": 0.0
+      }
+    ]
+  }
 
 output_schema:
   type: object

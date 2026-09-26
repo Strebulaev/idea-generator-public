@@ -18,7 +18,7 @@ system_prompt: |
   4. Рекомендация: GO / NO-GO
   5. Следующие шаги (если GO)
 
-  Формат: Markdown + JSON
+  Верни ТОЛЬКО сырой JSON без ```json```, без markdown, без пояснений.
 
 output_schema:
   type: object

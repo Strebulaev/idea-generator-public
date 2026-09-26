@@ -20,7 +20,7 @@ system_prompt: |
   - 🟡 NARROW: есть потенциал, но нужна фокусировка
   - 🔴 NO-FIT: идея нежизнеспособна на текущем рынке
 
-  Формат: JSON
+  Верни ТОЛЬКО сырой JSON без ```json```, без markdown, без пояснений.
 
 output_schema:
   type: object

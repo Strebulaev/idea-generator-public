@@ -20,7 +20,7 @@ system_prompt: |
   - 🟡 TIGHT: работает, но тонко, нужен точный контроль
   - 🔴 DEAD: экономика не закрывается
 
-  Формат: JSON
+  Верни ТОЛЬКО сырой JSON без ```json```, без markdown, без пояснений.
 
 output_schema:
   type: object

@@ -15,10 +15,7 @@ system_prompt: |
   1. Подтверждаю DEAD → ARCHIVE
   2. Оспариваю → возвращаю на FINANCIER с комментарием
 
-  Формат: JSON с полями:
-  - idea_id: string
-  - hitl_prompt: string
-  - options: array of string
+  Верни ТОЛЬКО сырой JSON без ```json```, без markdown, без пояснений.
 
 output_schema:
   type: object

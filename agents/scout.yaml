@@ -16,10 +16,17 @@ system_prompt: |
   3. Регуляторика и юридические ограничения
   4. Технические барьеры и возможности
 
-  Формат: JSON с полями:
-  - idea_id: string
-  - facts: array of {source, content, url?}
-  - gaps: array of string (неизвестные, нуждающиеся в проверке)
+  Формат: ТОЛЬКО сырой JSON без ```json```, без markdown, без пояснений.
+  Структура:
+  {
+    "research": [
+      {
+        "idea_id": "string",
+        "facts": [{"source": "string", "content": "string", "url": "string?"}],
+        "gaps": ["string"]
+      }
+    ]
+  }
 
 output_schema:
   type: object
