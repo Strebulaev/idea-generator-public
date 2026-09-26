@@ -256,7 +256,9 @@ def run():
         if not continued:
             # 1. Brainstormer
             bs_result = step("01_brainstormer", "brainstormer", state)
-            state["ideas"] = bs_result.get("ideas", [])
+            state["ideas"] = bs_result.get("ideas") or []
+            if not state["ideas"] and isinstance(bs_result, dict) and bs_result.get("id") and bs_result.get("title"):
+                state["ideas"] = [bs_result]
             if not state["ideas"]:
                 print("ERROR: Brainstormer returned no ideas", file=sys.stderr)
                 print("Brainstormer raw result: " + json.dumps(bs_result, ensure_ascii=False)[:2000], file=sys.stderr)

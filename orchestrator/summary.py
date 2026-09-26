@@ -29,7 +29,7 @@ def main():
     if data.get("ideas"):
         lines.append("### 💡 Ideas generated")
         for idea in data["ideas"][:5]:
-            lines.append(f"- **{idea.get('title', idea.get('id', '-'))}** — {idea.get('description', '')[:120]}")
+            lines.append(f"- **{idea.get('title', idea.get('id', '-'))}** — {idea.get('description', '')}")
         lines.append("")
 
     if data.get("one_pager"):
