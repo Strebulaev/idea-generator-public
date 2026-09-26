@@ -1,7 +1,7 @@
 id: hitl-5
 mode: human-in-the-loop
 name: HITL-5 — Финальный go/no-go
-description: Финальное решение человека: запускать прототип или нет.
+description: "Финальное решение человека: запускать прототип или нет."
 
 system_prompt: |
   Ты — facilitator для финального решения. Синтезатор подготовил one-pager.

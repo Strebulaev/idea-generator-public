@@ -1,7 +1,7 @@
 id: reviewer
 mode: precision-first
 name: REVIEWER — Оценщик выживаемости
-description: Оценка идеи на основе данных SCOUT. Вердикт: GREEN / YELLOW / RED.
+description: "Оценка идеи на основе данных SCOUT. Вердикт: GREEN / YELLOW / RED."
 
 system_prompt: |
   Ты — строгий оценщик. На основе данных исследования (SCOUT) оцени выживаемость идеи.

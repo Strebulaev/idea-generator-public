@@ -199,12 +199,13 @@ def run():
                 "history": [],
             }
 
-        print(f"RUN_ID={RUN_ID}")
-        print(f"TOPIC={state.get('topic')}")
-        print(f"DOMAIN={state.get('domain')}")
-        print(f"CONSTRAINTS={state.get('constraints')}")
-        print(f"MODEL={MODEL}")
-        print(f"CONTINUED={continued}")
+    print(f"RUN_ID={RUN_ID}")
+    print(f"TOPIC={state.get('topic')}")
+    print(f"DOMAIN={state.get('domain')}")
+    print(f"CONSTRAINTS={state.get('constraints')}")
+    print(f"MODEL={MODEL}")
+    print(f"CONTINUED={continued}")
+    sys.stdout.flush()
 
         if not continued:
             # 1. Brainstormer

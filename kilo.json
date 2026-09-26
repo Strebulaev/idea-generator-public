@@ -3,7 +3,9 @@
   "model": "openai/gpt-4o",
   "small_model": "openai/gpt-4o-mini",
   "default_agent": "idea-generator",
-  "instructions": ["AGENTS.md"],
-  "snapshot": true,
+  "instructions": [
+    "AGENTS.md"
+  ],
+  "snapshot": false,
   "share": "manual"
 }
