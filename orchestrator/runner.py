@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import traceback
 import yaml
 import requests
 import base64
@@ -46,7 +47,6 @@ def gh_request(method, path, **kwargs):
 def download_previous_artifacts(run_id: str) -> Path:
     target = BASE_DIR / "artifacts" / "_continued"
     target.mkdir(parents=True, exist_ok=True)
-    # List artifacts for the run
     data = gh_request("GET", f"/actions/runs/{run_id}/artifacts")
     if not data or "artifacts" not in data:
         raise RuntimeError(f"No artifacts found for run {run_id}")
@@ -164,140 +164,152 @@ def emit_hitl_issue(hitl_id: str, state: dict[str, Any], prompt_text: str, optio
     return issue or {}
 
 
+def save_state(state: dict[str, Any], status: str, reason: str = "") -> None:
+    state["status"] = status
+    if reason:
+        state["archive_reason"] = reason
+    save_artifact("final", state)
+
+
 def run():
     state_path = ARTIFACTS_DIR / "final.json"
     continued = False
 
-    if CONTINUE_RUN_ID and HITL_DECISION:
-        print(f"Continuing run {CONTINUE_RUN_ID} with decision={HITL_DECISION}")
-        src = BASE_DIR / "artifacts" / "_continued"
-        if not src.exists() or not (src / "final.json").exists():
-            download_previous_artifacts(CONTINUE_RUN_ID)
-        state = json.loads((src / "final.json").read_text(encoding="utf-8"))
-        state["hitl_decision"] = HITL_DECISION
-        continued = True
-    else:
-        if not TOPIC or not DOMAIN:
-            print("ERROR: TOPIC and DOMAIN must be set", file=sys.stderr)
-            sys.exit(1)
+    try:
+        if CONTINUE_RUN_ID and HITL_DECISION:
+            print(f"Continuing run {CONTINUE_RUN_ID} with decision={HITL_DECISION}")
+            src = BASE_DIR / "artifacts" / "_continued"
+            if not src.exists() or not (src / "final.json").exists():
+                download_previous_artifacts(CONTINUE_RUN_ID)
+            state = json.loads((src / "final.json").read_text(encoding="utf-8"))
+            state["hitl_decision"] = HITL_DECISION
+            continued = True
+        else:
+            if not TOPIC or not DOMAIN:
+                print("ERROR: TOPIC and DOMAIN must be set", file=sys.stderr)
+                save_state({"topic": TOPIC, "domain": DOMAIN, "constraints": CONSTRAINTS}, "error", "missing_inputs")
+                sys.exit(1)
 
-        state = {
-            "topic": TOPIC,
-            "domain": DOMAIN,
-            "constraints": CONSTRAINTS,
-            "started_at": datetime.utcnow().isoformat() + "Z",
-            "arch_iterations": 0,
-            "history": [],
-        }
+            state = {
+                "topic": TOPIC,
+                "domain": DOMAIN,
+                "constraints": CONSTRAINTS,
+                "started_at": datetime.utcnow().isoformat() + "Z",
+                "arch_iterations": 0,
+                "history": [],
+            }
 
-    print(f"RUN_ID={RUN_ID}")
-    print(f"TOPIC={state.get('topic')}")
-    print(f"DOMAIN={state.get('domain')}")
-    print(f"CONSTRAINTS={state.get('constraints')}")
-    print(f"MODEL={MODEL}")
-    print(f"CONTINUED={continued}")
+        print(f"RUN_ID={RUN_ID}")
+        print(f"TOPIC={state.get('topic')}")
+        print(f"DOMAIN={state.get('domain')}")
+        print(f"CONSTRAINTS={state.get('constraints')}")
+        print(f"MODEL={MODEL}")
+        print(f"CONTINUED={continued}")
 
-    if not continued:
-        # 1. Brainstormer
-        bs_result = step("01_brainstormer", "brainstormer", state)
-        state["ideas"] = bs_result.get("ideas", [])
-        if not state["ideas"]:
-            print("ERROR: Brainstormer returned no ideas", file=sys.stderr)
-            sys.exit(1)
+        if not continued:
+            # 1. Brainstormer
+            bs_result = step("01_brainstormer", "brainstormer", state)
+            state["ideas"] = bs_result.get("ideas", [])
+            if not state["ideas"]:
+                print("ERROR: Brainstormer returned no ideas", file=sys.stderr)
+                save_state(state, "error", "no_ideas")
+                sys.exit(1)
 
-        current_idea = state["ideas"][0]
-        state["current_idea"] = current_idea
+            current_idea = state["ideas"][0]
+            state["current_idea"] = current_idea
 
-        # 2. Scout
-        scout_result = step("02_scout", "scout", state)
-        state["scout_data"] = scout_result.get("research", [])
+            # 2. Scout
+            scout_result = step("02_scout", "scout", state)
+            state["scout_data"] = scout_result.get("research", [])
 
-        # 3. Reviewer
-        reviewer_result = step("03_reviewer", "reviewer", state)
-        verdicts = reviewer_result.get("verdicts", [])
-        current_verdict = verdicts[0]["verdict"] if verdicts else "YELLOW"
-        state["reviewer_verdict"] = current_verdict
-        state["reviewer_reasoning"] = verdicts[0].get("reasoning", "") if verdicts else ""
-        state["risks"] = verdicts[0].get("risks", []) if verdicts else []
+            # 3. Reviewer
+            reviewer_result = step("03_reviewer", "reviewer", state)
+            verdicts = reviewer_result.get("verdicts", [])
+            current_verdict = verdicts[0]["verdict"] if verdicts else "YELLOW"
+            state["reviewer_verdict"] = current_verdict
+            state["reviewer_reasoning"] = verdicts[0].get("reasoning", "") if verdicts else ""
+            state["risks"] = verdicts[0].get("risks", []) if verdicts else []
 
-        if current_verdict == "RED":
-            hitl_result = step("hitl-2", "hitl-2", state)
-            emit_hitl_issue(
-                "HITL-2",
-                state,
-                hitl_result.get("hitl_prompt", "Reviewer вынес RED. Подтвердить?"),
-                hitl_result.get("options", ["Подтверждаю RED", "Оспариваю"]),
-            )
-            state["status"] = "awaiting-hitl-2"
-            save_artifact("final", state)
-            print("Stopped at HITL-2. Create issue and re-run with hitl_decision.")
+            if current_verdict == "RED":
+                hitl_result = step("hitl-2", "hitl-2", state)
+                emit_hitl_issue(
+                    "HITL-2",
+                    state,
+                    hitl_result.get("hitl_prompt", "Reviewer вынес RED. Подтвердить?"),
+                    hitl_result.get("options", ["Подтверждаю RED", "Оспариваю"]),
+                )
+                save_state(state, "awaiting-hitl-2", "hitl_2_red")
+                print("Stopped at HITL-2. Create issue and re-run with hitl_decision.")
+                return
+
+        else:
+            current_idea = state.get("current_idea", state.get("ideas", [{}])[0])
+            current_verdict = state.get("reviewer_verdict", "YELLOW")
+            if HITL_DECISION == "disputed" and state.get("status") == "awaiting-hitl-2":
+                current_verdict = "YELLOW"
+
+        if current_verdict == "GREEN":
+            pass
+        elif current_verdict == "YELLOW" or (continued and HITL_DECISION == "disputed"):
+            state["arch_iterations"] = state.get("arch_iterations", 0)
+            arch_result = step("04_architect", "architect", state)
+            state["mutated_idea"] = arch_result.get("mutated_idea", current_idea)
+            state["arch_iterations"] = arch_result.get("arch_iterations", state.get("arch_iterations", 0) + 1)
+            current_idea = state["mutated_idea"]
+            state["current_idea"] = current_idea
+        else:
+            save_state(state, "archived", "red_confirmed")
+            print("Archived due to RED verdict.")
             return
 
-    else:
-        # Restore current idea from saved state
-        current_idea = state.get("current_idea", state.get("ideas", [{}])[0])
-        current_verdict = state.get("reviewer_verdict", "YELLOW")
-        if HITL_DECISION == "disputed" and state.get("status") == "awaiting-hitl-2":
-            current_verdict = "YELLOW"
+        # 4. Strategist
+        strat_result = step("05_strategist", "strategist", state)
+        state["strategy"] = strat_result
 
-    if current_verdict == "GREEN":
-        pass
-    elif current_verdict == "YELLOW" or (continued and HITL_DECISION == "disputed"):
-        state["arch_iterations"] = state.get("arch_iterations", 0)
-        arch_result = step("04_architect", "architect", state)
-        state["mutated_idea"] = arch_result.get("mutated_idea", current_idea)
-        state["arch_iterations"] = arch_result.get("arch_iterations", state.get("arch_iterations", 0) + 1)
-        current_idea = state["mutated_idea"]
-        state["current_idea"] = current_idea
-    else:
-        state["status"] = "archived"
-        state["archive_reason"] = "RED verdict confirmed (HITL-2)"
-        save_artifact("final", state)
-        print("Archived due to RED verdict.")
-        return
+        # 5. Financier
+        fin_result = step("06_financier", "financier", state)
+        state["finances"] = fin_result
 
-    # 4. Strategist
-    strat_result = step("05_strategist", "strategist", state)
-    state["strategy"] = strat_result
+        fin_verdict = fin_result.get("verdict", "TIGHT")
+        if fin_verdict == "DEAD":
+            hitl_result = step("hitl-4", "hitl-4", state)
+            emit_hitl_issue(
+                "HITL-4",
+                state,
+                hitl_result.get("hitl_prompt", "Финансы показали DEAD. Подтвердить?"),
+                hitl_result.get("options", ["Подтверждаю DEAD", "Оспариваю"]),
+            )
+            save_state(state, "awaiting-hitl-4", "hitl_4_dead")
+            print("Stopped at HITL-4. Create issue and re-run with hitl_decision.")
+            return
 
-    # 5. Financier
-    fin_result = step("06_financier", "financier", state)
-    state["finances"] = fin_result
+        if continued and HITL_DECISION == "disputed" and state.get("status") == "awaiting-hitl-4":
+            pass
 
-    fin_verdict = fin_result.get("verdict", "TIGHT")
-    if fin_verdict == "DEAD":
-        hitl_result = step("hitl-4", "hitl-4", state)
+        # 6. Synthesizer
+        synth_result = step("07_synthesizer", "synthesizer", state)
+        state["synthesis"] = synth_result
+
+        # 7. HITL-5
+        hitl_result = step("hitl-5", "hitl-5", state)
         emit_hitl_issue(
-            "HITL-4",
+            "HITL-5",
             state,
-            hitl_result.get("hitl_prompt", "Финансы показали DEAD. Подтвердить?"),
-            hitl_result.get("options", ["Подтверждаю DEAD", "Оспариваю"]),
+            hitl_result.get("hitl_prompt", "Финальное решение: GO или NO-GO?"),
+            hitl_result.get("options", ["GO", "NO-GO"]),
         )
-        state["status"] = "awaiting-hitl-4"
-        save_artifact("final", state)
-        print("Stopped at HITL-4. Create issue and re-run with hitl_decision.")
+        save_state(state, "awaiting-hitl-5", "hitl_5_final")
+        print("Stopped at HITL-5. Create issue and re-run with hitl_decision.")
         return
 
-    if continued and HITL_DECISION == "disputed" and state.get("status") == "awaiting-hitl-4":
-        # Back to financier already handled by re-running financier step if needed.
-        pass
-
-    # 6. Synthesizer
-    synth_result = step("07_synthesizer", "synthesizer", state)
-    state["synthesis"] = synth_result
-
-    # 7. HITL-5
-    hitl_result = step("hitl-5", "hitl-5", state)
-    emit_hitl_issue(
-        "HITL-5",
-        state,
-        hitl_result.get("hitl_prompt", "Финальное решение: GO или NO-GO?"),
-        hitl_result.get("options", ["GO", "NO-GO"]),
-    )
-    state["status"] = "awaiting-hitl-5"
-    save_artifact("final", state)
-    print("Stopped at HITL-5. Create issue and re-run with hitl_decision.")
-    return
+    except Exception as exc:
+        print(f"FATAL: {exc}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        try:
+            save_state(state if 'state' in dir() else {}, "error", str(exc))
+        except Exception:
+            pass
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -61,6 +61,24 @@ jobs:
 
       - name: Run idea generator pipeline
         run: python orchestrator/runner.py
+        env:
+          KILO_GATEWAY_URL: ${{ secrets.KILO_GATEWAY_URL }}
+          KILO_API_KEY: ${{ secrets.KILO_API_KEY }}
+          IDEA_GENERATOR_MODEL: ${{ secrets.IDEA_GENERATOR_MODEL || 'gpt-4o' }}
+          TOPIC: ${{ inputs.topic }}
+          DOMAIN: ${{ inputs.domain }}
+          CONSTRAINTS: ${{ inputs.constraints }}
+          RUN_ID: ${{ inputs.continue_run_id || format('{0}-{1}', github.run_id, github.run_attempt) }}
+          HITL_DECISION: ${{ inputs.hitl_decision }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List artifacts directory
+        if: always()
+        run: |
+          echo "RUN_ID=${{ env.RUN_ID }}"
+          ls -la artifacts || true
+          ls -la artifacts/${{ env.RUN_ID }} || true
 
       - name: Upload artifacts
         if: always()
@@ -69,9 +87,18 @@ jobs:
           name: idea-generator-${{ env.RUN_ID }}
           path: artifacts/${{ env.RUN_ID }}/
           retention-days: 30
+          fail-on-empty: false
 
       - name: Create summary
         if: always()
         run: |
-          python orchestrator/summary.py artifacts/${{ env.RUN_ID }}/final.json \
-            >> $GITHUB_STEP_SUMMARY
+          ARTIFACT="artifacts/${{ env.RUN_ID }}/final.json"
+          if [ -f "$ARTIFACT" ]; then
+            python orchestrator/summary.py "$ARTIFACT" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "::warning::final.json not found at $ARTIFACT"
+            echo "## 🚀 Idea Generator Run" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Status:** failed or stopped before final.json" >> $GITHUB_STEP_SUMMARY
+            echo "- **RUN_ID:** ${{ env.RUN_ID }}" >> $GITHUB_STEP_SUMMARY
+          fi
