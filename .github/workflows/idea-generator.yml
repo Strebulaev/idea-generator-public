@@ -87,7 +87,7 @@ jobs:
           name: idea-generator-${{ env.RUN_ID }}
           path: artifacts/${{ env.RUN_ID }}/
           retention-days: 30
-          fail-on-empty: false
+          if-no-files-found: warn
 
       - name: Create summary
         if: always()

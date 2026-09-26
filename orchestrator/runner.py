@@ -176,18 +176,35 @@ def step(name: str, agent_id: str, context: dict[str, Any]) -> dict:
 
 
 def emit_hitl_issue(hitl_id: str, state: dict[str, Any], prompt_text: str, options: list[str]) -> dict:
+    current_idea = state.get("current_idea") or state.get("mutated_idea") or (state.get("ideas", [{}])[0])
+    idea_block = ""
+    if current_idea:
+        idea_block = f"""### 💡 Идея
+- **ID:** {current_idea.get('id', '-')}
+- **Название:** {current_idea.get('title', '-')}
+- **Описание:** {current_idea.get('description', '-')}
+- **Теги:** {', '.join(current_idea.get('tags', []) or [])}
+"""
+
+    risks = state.get("risks") or []
+    risks_block = ""
+    if risks:
+        risks_block = "### ⚠️ Риски\n" + "\n".join([f"- {r}" for r in risks]) + "\n"
+
+    prompt_block = f"### 🧠 Запрос\n{prompt_text}\n"
+    options_block = "### 🎯 Варианты\n" + "\n".join([f"{i+1}. {o}" for i, o in enumerate(options)]) + "\n"
+
+    context_block = f"""### 📌 Контекст
+- **RUN_ID:** {RUN_ID}
+- **Хэш workflow run:** {GITHUB_REPOSITORY}/actions/runs/{RUN_ID}
+- **Тема:** {state.get('topic', '-')}
+- **Домен:** {state.get('domain', '-')}
+- **Ограничения:** {state.get('constraints', '-') or '-'}
+"""
+
+    body = "\n".join([context_block, idea_block, risks_block, prompt_block, options_block])
+
     issue_title = f"[HITL] {hitl_id} — требуется решение для RUN_ID={RUN_ID}"
-    body = json.dumps(
-        {
-            "run_id": RUN_ID,
-            "hitl_id": hitl_id,
-            "prompt": prompt_text,
-            "options": options,
-            "state_preview": {k: state[k] for k in ["topic", "domain", "constraints", "reviewer_verdict"] if k in state},
-        },
-        ensure_ascii=False,
-        indent=2,
-    )
     issue = create_github_issue(issue_title, body, labels=["idea-generator", "hitl", "awaiting-decision"])
     print(f"HITL issue created: {issue.get('html_url') if issue else 'N/A'}")
     return issue or {}
