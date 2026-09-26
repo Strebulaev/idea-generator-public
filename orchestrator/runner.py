@@ -88,8 +88,8 @@ def render_prompt(template: str, context: dict[str, Any]) -> str:
 
 def call_kilo(system_prompt: str, user_prompt: str, response_schema: dict | None = None) -> dict:
     if not KILO_API_KEY:
-        print("WARNING: KILO_API_KEY is not set. Returning mock response.", file=sys.stderr)
-        return {"mock": True, "system": system_prompt[:100], "user": user_prompt[:100]}
+        print("ERROR: KILO_API_KEY is not set", file=sys.stderr)
+        raise RuntimeError("KILO_API_KEY is not set")
 
     payload: dict[str, Any] = {
         "model": MODEL,
@@ -102,18 +102,37 @@ def call_kilo(system_prompt: str, user_prompt: str, response_schema: dict | None
     if response_schema:
         payload["response_format"] = {"type": "json_schema", "json_schema": {"name": "output", "schema": response_schema}}
 
-    resp = requests.post(
-        f"{KILO_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {KILO_API_KEY}"},
-        json=payload,
-        timeout=300,
-    )
-    resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"]
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        return {"raw": content}
+    last_exc = None
+    for attempt in range(3):
+        try:
+            resp = requests.post(
+                f"{KILO_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {KILO_API_KEY}"},
+                json=payload,
+                timeout=(20, 180),
+            )
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"]
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                return {"raw": content}
+        except requests.exceptions.ReadTimeout as exc:
+            last_exc = exc
+            print(f"KILO_TIMEOUT attempt={attempt+1} model={MODEL} url={KILO_URL}", file=sys.stderr)
+        except requests.exceptions.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            print(f"KILO_HTTP_ERROR status={status} attempt={attempt+1} model={MODEL} url={KILO_URL}", file=sys.stderr)
+            raise
+        except requests.exceptions.ConnectionError as exc:
+            last_exc = exc
+            print(f"KILO_CONNECTION_ERROR attempt={attempt+1} model={MODEL} url={KILO_URL} err={exc}", file=sys.stderr)
+        except Exception as exc:
+            last_exc = exc
+            print(f"KILO_UNEXPECTED_ERROR attempt={attempt+1} model={MODEL} err={exc}", file=sys.stderr)
+        time.sleep(min(60, 5 * (attempt + 1)))
+
+    raise last_exc
 
 
 def save_artifact(name: str, data: dict | str) -> Path:
