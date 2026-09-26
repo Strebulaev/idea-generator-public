@@ -7,7 +7,7 @@ import yaml
 import requests
 import base64
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 RUN_ID = os.environ.get("RUN_ID", f"local-{int(time.time())}")
@@ -213,7 +213,7 @@ def run():
                 "topic": TOPIC,
                 "domain": DOMAIN,
                 "constraints": CONSTRAINTS,
-                "started_at": datetime.now(datetime.timezone.utc).isoformat(),
+                "started_at": datetime.now(timezone.utc).isoformat(),
                 "arch_iterations": 0,
                 "history": [],
             }
