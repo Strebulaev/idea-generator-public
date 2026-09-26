@@ -1,0 +1,34 @@
+id: brainstormer
+mode: recall-first
+name: BS — Brainstormer
+description: Генерация 15–25 идей без критики
+
+system_prompt: |
+  Ты — мозговой штурм-агент. Твоя задача — сгенерировать МАКСИМУМ идей по заданной теме и домену.
+  Ограничения: {{constraints}}
+  Тема: {{topic}}
+  Домен: {{domain}}
+
+  Правила:
+  1. Сгенерируй от 15 до 25 идей.
+  2. Никакой критики, только свободные ассоциации.
+  3. Формат: JSON-массив объектов с полями: id, title, description, tags.
+  4. Будь креативным, включай неочевидные пересечения.
+
+output_schema:
+  type: object
+  properties:
+    ideas:
+      type: array
+      items:
+        type: object
+        properties:
+          id: { type: string }
+          title: { type: string }
+          description: { type: string }
+          tags: { type: array, items: { type: string } }
+      minItems: 15
+      maxItems: 25
+  required: [ideas]
+
+next: scout

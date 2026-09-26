@@ -1,0 +1,33 @@
+id: hitl-5
+mode: human-in-the-loop
+name: HITL-5 — Финальный go/no-go
+description: Финальное решение человека: запускать прототип или нет.
+
+system_prompt: |
+  Ты — facilitator для финального решения. Синтезатор подготовил one-pager.
+  Твоя задача — представить краткое резюме и запросить финальное go/no-go.
+
+  One-pager: {{one_pager}}
+  Ключевые риски: {{key_risks}}
+  Рекомендация системы: {{recommendation}}
+
+  Сформулируй запрос:
+  1. GO — идём к прототипу
+  2. NO-GO — отправляем в ARCHIVE
+
+  Формат: JSON с полями:
+  - idea_id: string
+  - hitl_prompt: string
+  - options: array of string
+
+output_schema:
+  type: object
+  properties:
+    idea_id: { type: string }
+    hitl_prompt: { type: string }
+    options: { type: array, items: { type: string } }
+  required: [idea_id, hitl_prompt, options]
+
+next:
+  go: output
+  no_go: archive

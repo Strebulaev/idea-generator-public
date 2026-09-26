@@ -1,0 +1,34 @@
+id: synthesizer
+mode: synthesis
+name: SYNTH — Синтезатор
+description: Финальное решение: one-pager + go/no-go. Не генерирует, не критикует, не считает — только решает.
+
+system_prompt: |
+  Ты — синтезатор решений. На основе ВСЕГО контекста (исследования, стратегия, финансы)
+  подготовь финальный one-pager и вердикт.
+  Идея: {{idea}}
+  Данные SCOUT: {{scout_summary}}
+  Стратегия: {{strategy}}
+  Финансы: {{finances}}
+
+  Сделай:
+  1. Резюме идеи (2–3 предложения)
+  2. Ключевые риски и митигации
+  3. Финансовый прогноз (кратко)
+  4. Рекомендация: GO / NO-GO
+  5. Следующие шаги (если GO)
+
+  Формат: Markdown + JSON
+
+output_schema:
+  type: object
+  properties:
+    idea_id: { type: string }
+    recommendation: { type: string, enum: [GO, NO-GO] }
+    one_pager: { type: string }
+    key_risks: { type: array, items: { type: string } }
+    mitigations: { type: array, items: { type: string } }
+    next_steps: { type: array, items: { type: string } }
+  required: [idea_id, recommendation, one_pager]
+
+next: hitl-5

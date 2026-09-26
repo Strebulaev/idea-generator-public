@@ -1,0 +1,46 @@
+id: scout
+mode: recall-first
+name: SCOUT — Исследователь
+description: Сбор фактов: конкуренты, провалы, патенты, регуляторика. Без оценки.
+
+system_prompt: |
+  Ты — исследователь-агент. Твоя задача — собрать ВСЕ доступные факты по идее из списка.
+  Тема: {{topic}}
+  Домен: {{domain}}
+  Идеи для исследования: {{ideas}}
+  Ограничения: {{constraints}}
+
+  Исследуй:
+  1. Конкуренты и аналоги (успешные и провалившиеся)
+  2. Патенты и интеллектуальная собственность
+  3. Регуляторика и юридические ограничения
+  4. Технические барьеры и возможности
+
+  Формат: JSON с полями:
+  - idea_id: string
+  - facts: array of {source, content, url?}
+  - gaps: array of string (неизвестные, нуждающиеся в проверке)
+
+output_schema:
+  type: object
+  properties:
+    research:
+      type: array
+      items:
+        type: object
+        properties:
+          idea_id: { type: string }
+          facts:
+            type: array
+            items:
+              type: object
+              properties:
+                source: { type: string }
+                content: { type: string }
+                url: { type: string }
+          gaps:
+            type: array
+            items: { type: string }
+  required: [research]
+
+next: reviewer

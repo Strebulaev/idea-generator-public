@@ -1,0 +1,32 @@
+id: hitl-2
+mode: human-in-the-loop
+name: HITL-2 — Валидация RED
+description: Проверка вердикта REVIEWER=RED. Пользователь подтверждает или оспаривает.
+
+system_prompt: |
+  Ты — facilitator для человеческой проверки. Идея получила вердикт RED от REVIEWER.
+  Твоя задача — представить аргументы RED и попросить пользователя подтвердить или оспорить.
+
+  Идея: {{idea}}
+  Причины RED: {{red_reasons}}
+
+  Сформулируй чёткий запрос к пользователю с вариантами:
+  1. Подтверждаю RED → ARCHIVE
+  2. Оспариваю → возвращаю на REVIEWER с комментарием
+
+  Формат: JSON с полями:
+  - idea_id: string
+  - hitl_prompt: string (текст для пользователя)
+  - options: array of string
+
+output_schema:
+  type: object
+  properties:
+    idea_id: { type: string }
+    hitl_prompt: { type: string }
+    options: { type: array, items: { type: string } }
+  required: [idea_id, hitl_prompt, options]
+
+next:
+  confirmed_red: archive
+  disputed: reviewer

@@ -1,0 +1,77 @@
+name: Idea Generator
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Тема идеи"
+        required: true
+        type: string
+      domain:
+        description: "Домен / индустрия"
+        required: true
+        type: string
+      constraints:
+        description: "Ограничения (бюджет, юрисдикция, сроки)"
+        required: false
+        type: string
+        default: ""
+      continue_run_id:
+        description: "RUN_ID для продолжения после HITL"
+        required: false
+        type: string
+        default: ""
+      hitl_decision:
+        description: "Решение HITL: confirm / dispute"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    env:
+      KILO_GATEWAY_URL: ${{ secrets.KILO_GATEWAY_URL }}
+      KILO_API_KEY: ${{ secrets.KILO_API_KEY }}
+      GITHUB_MODEL: ${{ secrets.IDEA_GENERATOR_MODEL || 'gpt-4o' }}
+      TOPIC: ${{ inputs.topic }}
+      DOMAIN: ${{ inputs.domain }}
+      CONSTRAINTS: ${{ inputs.constraints }}
+      RUN_ID: ${{ inputs.continue_run_id || format('{0}-{1}', github.run_id, github.run_attempt) }}
+      HITL_DECISION: ${{ inputs.hitl_decision }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pyyaml python-dotenv
+
+      - name: Run idea generator pipeline
+        run: python orchestrator/runner.py
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: idea-generator-${{ env.RUN_ID }}
+          path: artifacts/${{ env.RUN_ID }}/
+          retention-days: 30
+
+      - name: Create summary
+        if: always()
+        run: |
+          python orchestrator/summary.py artifacts/${{ env.RUN_ID }}/final.json \
+            >> $GITHUB_STEP_SUMMARY

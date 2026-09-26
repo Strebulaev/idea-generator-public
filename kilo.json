@@ -1,0 +1,9 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "model": "openai/gpt-4o",
+  "small_model": "openai/gpt-4o-mini",
+  "default_agent": "idea-generator",
+  "instructions": ["AGENTS.md"],
+  "snapshot": true,
+  "share": "manual"
+}
