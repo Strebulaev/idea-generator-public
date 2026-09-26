@@ -1,0 +1,75 @@
+name: HITL Continue from Issue Comment
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  continue-from-comment:
+    if: |
+      contains(github.event.issue.labels.*.name, 'idea-generator') &&
+      contains(github.event.issue.labels.*.name, 'hitl') &&
+      contains(github.event.issue.labels.*.name, 'awaiting-decision')
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - name: Parse decision from comment
+        id: parse
+        run: |
+          COMMENT="${{ github.event.comment.body }}"
+          COMMENT="$(echo "$COMMENT" | tr '[:lower:]' '[:upper:]')"
+          if [[ "$COMMENT" == *"GO"* ]]; then
+            DECISION="go"
+          elif [[ "$COMMENT" == *"NO-GO"* || "$COMMENT" == *"NO GO"* ]]; then
+            DECISION="no-go"
+          elif [[ "$COMMENT" == *"CONFIRM"* ]]; then
+            DECISION="confirm"
+          elif [[ "$COMMENT" == *"DISPUTE"* || "$COMMENT" == *"ОСПАРИВАЮ"* ]]; then
+            DECISION="dispute"
+          else
+            echo "::error::Не удалось распознать решение в комментарии. Используйте GO или NO-GO."
+            exit 1
+          fi
+          echo "decision=$DECISION" >> "$GITHUB_OUTPUT"
+          echo "Parsed decision: $DECISION"
+
+      - name: Extract RUN_ID from issue title
+        id: extract
+        run: |
+          TITLE="${{ github.event.issue.title }}"
+          RUN_ID="$(echo "$TITLE" | grep -oE 'RUN_ID=[^ ]+' | cut -d= -f2 || true)"
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::Не удалось найти RUN_ID в заголовке issue."
+            exit 1
+          fi
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "RUN_ID=$RUN_ID"
+
+      - name: Trigger workflow continuation
+        run: |
+          DECISION="${{ steps.parse.outputs.decision }}"
+          RUN_ID="${{ steps.extract.outputs.run_id }}"
+          echo "Triggering Idea Generator workflow for RUN_ID=$RUN_ID with decision=$DECISION"
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/idea-generator.yml/dispatches" \
+            -d "{\"ref\":\"main\",\"inputs\":{\"continue_run_id\":\"$RUN_ID\",\"hitl_decision\":\"$DECISION\"}}"
+
+      - name: Add reply to issue
+        run: |
+          DECISION="${{ steps.parse.outputs.decision }}"
+          RUN_ID="${{ steps.extract.outputs.run_id }}"
+          BODY="Продолжаю pipeline для RUN_ID=$RUN_ID с решением: **$DECISION**"
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+            -d "{\"body\":\"$BODY\"}"
