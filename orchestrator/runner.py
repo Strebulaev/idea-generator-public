@@ -213,18 +213,18 @@ def run():
                 "topic": TOPIC,
                 "domain": DOMAIN,
                 "constraints": CONSTRAINTS,
-                "started_at": datetime.utcnow().isoformat() + "Z",
+                "started_at": datetime.now(datetime.timezone.utc).isoformat(),
                 "arch_iterations": 0,
                 "history": [],
             }
 
-    print(f"RUN_ID={RUN_ID}")
-    print(f"TOPIC={state.get('topic')}")
-    print(f"DOMAIN={state.get('domain')}")
-    print(f"CONSTRAINTS={state.get('constraints')}")
-    print(f"MODEL={MODEL}")
-    print(f"CONTINUED={continued}")
-    sys.stdout.flush()
+        print(f"RUN_ID={RUN_ID}")
+        print(f"TOPIC={state.get('topic')}")
+        print(f"DOMAIN={state.get('domain')}")
+        print(f"CONSTRAINTS={state.get('constraints')}")
+        print(f"MODEL={MODEL}")
+        print(f"CONTINUED={continued}")
+        sys.stdout.flush()
 
         if not continued:
             # 1. Brainstormer
