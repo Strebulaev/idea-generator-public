@@ -11,8 +11,6 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 
-from orchestrator.qdrant_store import save_record, load_record, list_run_keys
-
 RUN_ID = os.environ.get("RUN_ID", f"local-{int(time.time())}")
 STEP_NAME = os.environ.get("STEP_NAME", "")
 TOPIC = os.environ.get("TOPIC", "")
@@ -28,12 +26,15 @@ HITL_DECISION = os.environ.get("HITL_DECISION", "")
 QDRANT_ENABLED = bool(os.environ.get("QDRANT_URL"))
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
 AGENTS_DIR = BASE_DIR / "agents"
 ARTIFACTS_DIR = BASE_DIR / "artifacts" / RUN_ID
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATE_FILE = ARTIFACTS_DIR / "state.json"
 
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+
+from orchestrator.qdrant_store import save_record, load_record, list_run_keys
 
 
 def gh_request(method, path, **kwargs):
