@@ -156,7 +156,16 @@ def save_artifact(name: str, data: dict | str) -> Path:
     if isinstance(data, str):
         path.write_text(data, encoding="utf-8")
     else:
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Use a safe JSON serializer that replaces non-serializable objects
+        def _default(o):
+            try:
+                return repr(o)
+            except Exception:
+                return f"<non-serializable:{getattr(o, '__class__', type(o)).__name__}>"
+
+        path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2, default=_default), encoding="utf-8"
+        )
     if QDRANT_ENABLED:
         try:
             save_record(RUN_ID, name, data)
