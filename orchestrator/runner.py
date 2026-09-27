@@ -259,6 +259,50 @@ def run():
             state["ideas"] = bs_result.get("ideas") or []
             if not state["ideas"] and isinstance(bs_result, dict) and bs_result.get("id") and bs_result.get("title"):
                 state["ideas"] = [bs_result]
+            if len(state["ideas"]) < 15:
+                print(f"Brainstormer returned {len(state['ideas'])} ideas, requesting more to reach 15...", file=sys.stderr)
+                for expand_attempt in range(3):
+                    expand_prompt = (
+                        f"Сгенерируй СТРОГО 15-25 идей по теме: {state.get('topic')}, домен: {state.get('domain')}, "
+                        f"ограничения: {state.get('constraints') or '-'}. "
+                        f"Верни ТОЛЬКО JSON {{'ideas': [...]}} с полями id, title, description, tags. "
+                        f"БЕЗ пояснений, БЕЗ markdown, БЕЗ ```json```. "
+                        f"Минимум 15 идей, максимум 25."
+                    )
+                    expand_result = call_kilo(
+                        "Ты — мозговой штурм-агент. Сгенерируй 15-25 идей. ТОЛЬКО JSON.",
+                        expand_prompt,
+                        {
+                            "type": "object",
+                            "properties": {
+                                "ideas": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {"type": "string"},
+                                            "title": {"type": "string"},
+                                            "description": {"type": "string"},
+                                            "tags": {"type": "array", "items": {"type": "string"}},
+                                        },
+                                        "required": ["id", "title", "description", "tags"],
+                                    },
+                                },
+                            },
+                            "required": ["ideas"],
+                        },
+                    )
+                    expanded = expand_result.get("ideas") or []
+                    if len(expanded) >= 15:
+                        existing_ids = {idea.get("id") for idea in state["ideas"]}
+                        for idea in expanded:
+                            idea_id = idea.get("id")
+                            if idea_id not in existing_ids:
+                                state["ideas"].append(idea)
+                                existing_ids.add(idea_id)
+                        break
+                    print(f"Expansion attempt {expand_attempt+1} returned {len(expanded)} ideas, retrying...", file=sys.stderr)
+                save_artifact("01_brainstormer_expanded", {"ideas": state["ideas"]})
             if not state["ideas"]:
                 print("ERROR: Brainstormer returned no ideas", file=sys.stderr)
                 print("Brainstormer raw result: " + json.dumps(bs_result, ensure_ascii=False)[:2000], file=sys.stderr)
