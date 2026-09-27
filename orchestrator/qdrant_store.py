@@ -1,9 +1,13 @@
 import os
 import json
 import uuid
-from typing import Any
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from typing import Any, Optional
+try:
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import Distance, VectorParams, PointStruct
+    QDRANT_AVAILABLE = True
+except Exception:
+    QDRANT_AVAILABLE = False
 
 
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
@@ -12,13 +16,15 @@ QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "idea_generator")
 ID_NAMESPACE = uuid.UUID("12345678-1234-5678-1234-567812345678")
 
 
-def get_client() -> QdrantClient:
+def get_client() -> "QdrantClient":
+    if not QDRANT_AVAILABLE:
+        raise RuntimeError("qdrant_client package is not installed")
     if QDRANT_API_KEY:
         return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
     return QdrantClient(url=QDRANT_URL)
 
 
-def ensure_collection(client: QdrantClient | None = None) -> QdrantClient:
+def ensure_collection(client: Optional["QdrantClient"] = None) -> "QdrantClient":
     if client is None:
         client = get_client()
     if not client.collection_exists(QDRANT_COLLECTION):

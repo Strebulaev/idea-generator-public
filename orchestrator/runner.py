@@ -395,8 +395,21 @@ ROUTER = {
     "hitl-2": run_hitl_2,
     "hitl-4": run_hitl_4,
     "hitl-5": run_hitl_5,
-    "qdrant-healthcheck": lambda state: (print("QDRANT_URL=" + os.environ.get("QDRANT_URL", ""), file=sys.stderr), ensure_collection(), state),
+    "qdrant-healthcheck": None,
 }
+
+
+def qdrant_healthcheck(state: dict[str, Any]) -> dict[str, Any]:
+    print("QDRANT_URL=" + os.environ.get("QDRANT_URL", ""), file=sys.stderr)
+    if QDRANT_ENABLED:
+        try:
+            ensure_collection()
+        except Exception as exc:
+            print(f"QDRANT_HEALTHCHECK_ERROR err={exc}", file=sys.stderr)
+    return state
+
+# replace placeholder with function
+ROUTER["qdrant-healthcheck"] = qdrant_healthcheck
 
 
 def run_full(state: dict[str, Any]) -> dict[str, Any]:
