@@ -34,7 +34,7 @@ STATE_FILE = ARTIFACTS_DIR / "state.json"
 
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
-from orchestrator.qdrant_store import save_record, load_record, list_run_keys, ensure_collection, ensure_collection
+from orchestrator.qdrant_store import save_record, load_record, list_run_keys, ensure_collection, save_idea, list_run_ideas, search_ideas, ensure_collection
 
 
 def gh_request(method, path, **kwargs):
@@ -302,6 +302,12 @@ def run_brainstormer(state: dict[str, Any]) -> dict[str, Any]:
         print("Brainstormer raw result: " + json.dumps(result, ensure_ascii=False)[:2000], file=sys.stderr)
         raise RuntimeError("Brainstormer returned no ideas")
     state["current_idea"] = state["ideas"][0]
+    if QDRANT_ENABLED:
+        try:
+            for idea in state["ideas"]:
+                save_idea(RUN_ID, idea)
+        except Exception as exc:
+            print(f"QDRANT_IDEAS_SAVE_ERROR err={exc}", file=sys.stderr)
     return state
 
 
