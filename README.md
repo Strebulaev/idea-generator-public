@@ -14,7 +14,7 @@ $env:TOPIC="AI tutoring"; $env:DOMAIN="education"; $env:CONSTRAINTS="budget<$50k
 
 ## GitHub Actions
 
-Trigger via **Actions → Idea Generator → Run workflow** with:
+Trigger via **Actions → Idea Generator Pipeline Steps → Run workflow** with:
 - `topic`
 - `domain`
 - `constraints` (optional)
@@ -22,21 +22,20 @@ Trigger via **Actions → Idea Generator → Run workflow** with:
 Secrets:
 - `KILO_GATEWAY_URL` — Kilo Gateway endpoint
 - `KILO_API_KEY` — API key for Kilo Gateway
-- `IDEA_GENERATOR_MODEL` — model override, defaults to `gpt-4o`
+- `IDEA_GENERATOR_MODEL` — model override, defaults to `stepfun/step-3.7-flash:free`
 
-### After secrets are added
+### Storage
 
-1. Commit and push this repo to GitHub.
-2. Open **Actions** tab → select **Idea Generator** → **Run workflow**.
-3. Fill `topic`, `domain`, optional `constraints`, then click **Run workflow**.
-4. Wait for the job to finish.
-5. Review the **Step Summary** and download the **Artifacts** (`artifacts/idea-generator-<RUN_ID>/final.json`).
+- Primary: **Qdrant** via `QDRANT_URL` env var.
+- Fallback: GitHub Actions artifacts (`artifacts/<RUN_ID>/`).
 
 ### Continuing after HITL
 
-When workflow stops at HITL, re-run with:
-- `continue_run_id` — the RUN_ID from the stopped run
-- `hitl_decision` — `confirm` or `dispute`
+When workflow stops at HITL, you can continue by:
+- Adding a comment `GO` / `NO-GO` / `CONFIRM` / `DISPUTE` in the created issue, or
+- Re-running workflow with:
+  - `continue_run_id` — the RUN_ID from the stopped run
+  - `hitl_decision` — `confirm` or `dispute`
 
 ## Architecture
 

@@ -11,7 +11,10 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 
+from orchestrator.qdrant_store import save_record, load_record, list_run_keys
+
 RUN_ID = os.environ.get("RUN_ID", f"local-{int(time.time())}")
+STEP_NAME = os.environ.get("STEP_NAME", "")
 TOPIC = os.environ.get("TOPIC", "")
 DOMAIN = os.environ.get("DOMAIN", "")
 CONSTRAINTS = os.environ.get("CONSTRAINTS", "")
@@ -22,11 +25,13 @@ GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 CONTINUE_RUN_ID = os.environ.get("CONTINUE_RUN_ID", "")
 HITL_DECISION = os.environ.get("HITL_DECISION", "")
+QDRANT_ENABLED = bool(os.environ.get("QDRANT_URL"))
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 AGENTS_DIR = BASE_DIR / "agents"
 ARTIFACTS_DIR = BASE_DIR / "artifacts" / RUN_ID
 TEMPLATES_DIR = BASE_DIR / "templates"
+STATE_FILE = ARTIFACTS_DIR / "state.json"
 
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -151,10 +156,22 @@ def save_artifact(name: str, data: dict | str) -> Path:
         path.write_text(data, encoding="utf-8")
     else:
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    if QDRANT_ENABLED:
+        try:
+            save_record(RUN_ID, name, data)
+        except Exception as exc:
+            print(f"QDRANT_SAVE_ERROR key={name} err={exc}", file=sys.stderr)
     return path
 
 
 def load_artifact(name: str) -> Any:
+    if QDRANT_ENABLED:
+        try:
+            data = load_record(RUN_ID, name)
+            if data is not None:
+                return data
+        except Exception as exc:
+            print(f"QDRANT_LOAD_ERROR key={name} err={exc}", file=sys.stderr)
     path = ARTIFACTS_DIR / f"{name}.json"
     if not path.exists():
         return None
@@ -165,14 +182,15 @@ def load_artifact(name: str) -> Any:
         return text
 
 
-def step(name: str, agent_id: str, context: dict[str, Any]) -> dict:
-    print(f"[STEP] {name} -> agent={agent_id}")
-    agent = load_agent(agent_id)
-    system_prompt = render_prompt(agent["system_prompt"], context)
-    user_prompt = json.dumps(context, ensure_ascii=False)
-    result = call_kilo(system_prompt, user_prompt, agent.get("output_schema"))
-    save_artifact(name, result)
-    return result
+def save_state(state: dict[str, Any]) -> None:
+    save_artifact("state", state)
+
+
+def load_state() -> dict[str, Any]:
+    data = load_artifact("state")
+    if isinstance(data, dict):
+        return data
+    return {}
 
 
 def emit_hitl_issue(hitl_id: str, state: dict[str, Any], prompt_text: str, options: list[str]) -> dict:
@@ -210,32 +228,245 @@ def emit_hitl_issue(hitl_id: str, state: dict[str, Any], prompt_text: str, optio
     return issue or {}
 
 
-def save_state(state: dict[str, Any], status: str, reason: str = "") -> None:
-    state["status"] = status
-    if reason:
-        state["archive_reason"] = reason
-    save_artifact("final", state)
+def step(name: str, agent_id: str, context: dict[str, Any]) -> dict:
+    print(f"[STEP] {name} -> agent={agent_id}")
+    agent = load_agent(agent_id)
+    system_prompt = render_prompt(agent["system_prompt"], context)
+    user_prompt = json.dumps(context, ensure_ascii=False)
+    result = call_kilo(system_prompt, user_prompt, agent.get("output_schema"))
+    save_artifact(name, result)
+    return result
 
 
-def run():
-    state_path = ARTIFACTS_DIR / "final.json"
-    continued = False
+def run_brainstormer(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("01_brainstormer", "brainstormer", state)
+    state["ideas"] = result.get("ideas") or []
+    if not state["ideas"] and isinstance(result, dict) and result.get("id") and result.get("title"):
+        state["ideas"] = [result]
+    if len(state["ideas"]) < 15:
+        print(f"Brainstormer returned {len(state['ideas'])} ideas, requesting more to reach 15...", file=sys.stderr)
+        for expand_attempt in range(3):
+            expand_prompt = (
+                f"Сгенерируй СТРОГО 15-25 идей по теме: {state.get('topic')}, домен: {state.get('domain')}, "
+                f"ограничения: {state.get('constraints') or '-'}. "
+                f"Верни ТОЛЬКО JSON {{'ideas': [...]}} с полями id, title, description, tags. "
+                f"БЕЗ пояснений, БЕЗ markdown, БЕЗ ```json```. "
+                f"Минимум 15 идей, максимум 25."
+            )
+            expand_result = call_kilo(
+                "Ты — мозговой штурм-агент. Сгенерируй 15-25 идей. ТОЛЬКО JSON.",
+                expand_prompt,
+                {
+                    "type": "object",
+                    "properties": {
+                        "ideas": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string"},
+                                    "title": {"type": "string"},
+                                    "description": {"type": "string"},
+                                    "tags": {"type": "array", "items": {"type": "string"}},
+                                },
+                                "required": ["id", "title", "description", "tags"],
+                            },
+                        },
+                    },
+                    "required": ["ideas"],
+                },
+            )
+            expanded = expand_result.get("ideas") or []
+            if len(expanded) >= 15:
+                existing_ids = {idea.get("id") for idea in state["ideas"]}
+                for idea in expanded:
+                    idea_id = idea.get("id")
+                    if idea_id not in existing_ids:
+                        state["ideas"].append(idea)
+                        existing_ids.add(idea_id)
+                break
+            print(f"Expansion attempt {expand_attempt+1} returned {len(expanded)} ideas, retrying...", file=sys.stderr)
+        save_artifact("01_brainstormer_expanded", {"ideas": state["ideas"]})
+    if not state["ideas"]:
+        print("ERROR: Brainstormer returned no ideas", file=sys.stderr)
+        print("Brainstormer raw result: " + json.dumps(result, ensure_ascii=False)[:2000], file=sys.stderr)
+        raise RuntimeError("Brainstormer returned no ideas")
+    state["current_idea"] = state["ideas"][0]
+    return state
 
+
+def run_scout(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("02_scout", "scout", state)
+    state["scout_data"] = result.get("research", [])
+    return state
+
+
+def run_reviewer(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("03_reviewer", "reviewer", state)
+    verdicts = result.get("verdicts", [])
+    verdict = verdicts[0]["verdict"] if verdicts else "YELLOW"
+    state["reviewer_verdict"] = verdict
+    state["reviewer_reasoning"] = verdicts[0].get("reasoning", "") if verdicts else ""
+    state["risks"] = verdicts[0].get("risks", []) if verdicts else []
+    return state
+
+
+def run_architect(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("04_architect", "architect", state)
+    state["mutated_idea"] = result.get("mutated_idea", state.get("current_idea"))
+    state["arch_iterations"] = result.get("arch_iterations", state.get("arch_iterations", 0) + 1)
+    state["current_idea"] = state["mutated_idea"]
+    return state
+
+
+def run_strategist(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("05_strategist", "strategist", state)
+    state["strategy"] = result
+    return state
+
+
+def run_financier(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("06_financier", "financier", state)
+    state["finances"] = result
+    return state
+
+
+def run_synthesizer(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("07_synthesizer", "synthesizer", state)
+    state["synthesis"] = result
+    state["status"] = "ready-for-hitl-5"
+    return state
+
+
+def run_hitl_2(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("hitl-2", "hitl-2", state)
+    emit_hitl_issue(
+        "HITL-2",
+        state,
+        result.get("hitl_prompt", "Reviewer вынес RED. Подтвердить?"),
+        result.get("options", ["Подтверждаю RED", "Оспариваю"]),
+    )
+    state["status"] = "awaiting-hitl-2"
+    return state
+
+
+def run_hitl_4(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("hitl-4", "hitl-4", state)
+    emit_hitl_issue(
+        "HITL-4",
+        state,
+        result.get("hitl_prompt", "Финансы показали DEAD. Подтвердить?"),
+        result.get("options", ["Подтверждаю DEAD", "Оспариваю"]),
+    )
+    state["status"] = "awaiting-hitl-4"
+    return state
+
+
+def run_hitl_5(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("hitl-5", "hitl-5", state)
+    emit_hitl_issue(
+        "HITL-5",
+        state,
+        result.get("hitl_prompt", "Финальное решение: GO или NO-GO?"),
+        result.get("options", ["GO", "NO-GO"]),
+    )
+    state["status"] = "awaiting-hitl-5"
+    return state
+
+
+ROUTER = {
+    "brainstormer": run_brainstormer,
+    "scout": run_scout,
+    "reviewer": run_reviewer,
+    "architect": run_architect,
+    "strategist": run_strategist,
+    "financier": run_financier,
+    "synthesizer": run_synthesizer,
+    "hitl-2": run_hitl_2,
+    "hitl-4": run_hitl_4,
+    "hitl-5": run_hitl_5,
+    "qdrant-healthcheck": lambda state: (print("QDRANT_URL=" + os.environ.get("QDRANT_URL", ""), file=sys.stderr), ensure_collection(), state),
+}
+
+
+def run_full(state: dict[str, Any]) -> dict[str, Any]:
+    state = run_brainstormer(state)
+    save_state(state)
+
+    state = run_scout(state)
+    save_state(state)
+
+    state = run_reviewer(state)
+    save_state(state)
+
+    verdict = state.get("reviewer_verdict", "YELLOW")
+    if verdict == "RED":
+        state = run_hitl_2(state)
+        save_state(state)
+        return state
+    if verdict == "YELLOW":
+        state = run_architect(state)
+        save_state(state)
+
+    state = run_strategist(state)
+    save_state(state)
+
+    state = run_financier(state)
+    save_state(state)
+
+    if state.get("finances", {}).get("verdict") == "DEAD":
+        state = run_hitl_4(state)
+        save_state(state)
+        return state
+
+    state = run_synthesizer(state)
+    save_state(state)
+    state = run_hitl_5(state)
+    save_state(state)
+    return state
+
+
+def main():
     try:
+        if STEP_NAME:
+            state = load_state()
+            if not state:
+                if not TOPIC or not DOMAIN:
+                    print("ERROR: TOPIC and DOMAIN must be set for first step", file=sys.stderr)
+                    sys.exit(1)
+                state = {
+                    "topic": TOPIC,
+                    "domain": DOMAIN,
+                    "constraints": CONSTRAINTS,
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                    "arch_iterations": 0,
+                    "history": [],
+                }
+            runner = ROUTER.get(STEP_NAME)
+            if not runner:
+                raise RuntimeError(f"Unknown step: {STEP_NAME}")
+            print(f"RUN_ID={RUN_ID} STEP={STEP_NAME}")
+            state = runner(state)
+            save_state(state)
+            status = state.get("status", "ok")
+            print(json.dumps({"step": STEP_NAME, "status": status}, ensure_ascii=False))
+            gh_output = os.environ.get("GITHUB_OUTPUT")
+            if gh_output:
+                with open(gh_output, "a", encoding="utf-8") as f:
+                    f.write(f"status={status}\n")
+            return
+
         if CONTINUE_RUN_ID and HITL_DECISION:
             print(f"Continuing run {CONTINUE_RUN_ID} with decision={HITL_DECISION}")
             src = BASE_DIR / "artifacts" / "_continued"
-            if not src.exists() or not (src / "final.json").exists():
+            if not src.exists() or not (src / "state.json").exists():
                 download_previous_artifacts(CONTINUE_RUN_ID)
-            state = json.loads((src / "final.json").read_text(encoding="utf-8"))
+            state = json.loads((src / "state.json").read_text(encoding="utf-8"))
             state["hitl_decision"] = HITL_DECISION
-            continued = True
         else:
             if not TOPIC or not DOMAIN:
                 print("ERROR: TOPIC and DOMAIN must be set", file=sys.stderr)
-                save_state({"topic": TOPIC, "domain": DOMAIN, "constraints": CONSTRAINTS}, "error", "missing_inputs")
                 sys.exit(1)
-
             state = {
                 "topic": TOPIC,
                 "domain": DOMAIN,
@@ -250,161 +481,20 @@ def run():
         print(f"DOMAIN={state.get('domain')}")
         print(f"CONSTRAINTS={state.get('constraints')}")
         print(f"MODEL={MODEL}")
-        print(f"CONTINUED={continued}")
         sys.stdout.flush()
 
-        if not continued:
-            # 1. Brainstormer
-            bs_result = step("01_brainstormer", "brainstormer", state)
-            state["ideas"] = bs_result.get("ideas") or []
-            if not state["ideas"] and isinstance(bs_result, dict) and bs_result.get("id") and bs_result.get("title"):
-                state["ideas"] = [bs_result]
-            if len(state["ideas"]) < 15:
-                print(f"Brainstormer returned {len(state['ideas'])} ideas, requesting more to reach 15...", file=sys.stderr)
-                for expand_attempt in range(3):
-                    expand_prompt = (
-                        f"Сгенерируй СТРОГО 15-25 идей по теме: {state.get('topic')}, домен: {state.get('domain')}, "
-                        f"ограничения: {state.get('constraints') or '-'}. "
-                        f"Верни ТОЛЬКО JSON {{'ideas': [...]}} с полями id, title, description, tags. "
-                        f"БЕЗ пояснений, БЕЗ markdown, БЕЗ ```json```. "
-                        f"Минимум 15 идей, максимум 25."
-                    )
-                    expand_result = call_kilo(
-                        "Ты — мозговой штурм-агент. Сгенерируй 15-25 идей. ТОЛЬКО JSON.",
-                        expand_prompt,
-                        {
-                            "type": "object",
-                            "properties": {
-                                "ideas": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "id": {"type": "string"},
-                                            "title": {"type": "string"},
-                                            "description": {"type": "string"},
-                                            "tags": {"type": "array", "items": {"type": "string"}},
-                                        },
-                                        "required": ["id", "title", "description", "tags"],
-                                    },
-                                },
-                            },
-                            "required": ["ideas"],
-                        },
-                    )
-                    expanded = expand_result.get("ideas") or []
-                    if len(expanded) >= 15:
-                        existing_ids = {idea.get("id") for idea in state["ideas"]}
-                        for idea in expanded:
-                            idea_id = idea.get("id")
-                            if idea_id not in existing_ids:
-                                state["ideas"].append(idea)
-                                existing_ids.add(idea_id)
-                        break
-                    print(f"Expansion attempt {expand_attempt+1} returned {len(expanded)} ideas, retrying...", file=sys.stderr)
-                save_artifact("01_brainstormer_expanded", {"ideas": state["ideas"]})
-            if not state["ideas"]:
-                print("ERROR: Brainstormer returned no ideas", file=sys.stderr)
-                print("Brainstormer raw result: " + json.dumps(bs_result, ensure_ascii=False)[:2000], file=sys.stderr)
-                save_state(state, "error", "no_ideas")
-                sys.exit(1)
-
-            current_idea = state["ideas"][0]
-            state["current_idea"] = current_idea
-
-            # 2. Scout
-            scout_result = step("02_scout", "scout", state)
-            state["scout_data"] = scout_result.get("research", [])
-
-            # 3. Reviewer
-            reviewer_result = step("03_reviewer", "reviewer", state)
-            verdicts = reviewer_result.get("verdicts", [])
-            current_verdict = verdicts[0]["verdict"] if verdicts else "YELLOW"
-            state["reviewer_verdict"] = current_verdict
-            state["reviewer_reasoning"] = verdicts[0].get("reasoning", "") if verdicts else ""
-            state["risks"] = verdicts[0].get("risks", []) if verdicts else []
-
-            if current_verdict == "RED":
-                hitl_result = step("hitl-2", "hitl-2", state)
-                emit_hitl_issue(
-                    "HITL-2",
-                    state,
-                    hitl_result.get("hitl_prompt", "Reviewer вынес RED. Подтвердить?"),
-                    hitl_result.get("options", ["Подтверждаю RED", "Оспариваю"]),
-                )
-                save_state(state, "awaiting-hitl-2", "hitl_2_red")
-                print("Stopped at HITL-2. Create issue and re-run with hitl_decision.")
-                return
-
-        else:
-            current_idea = state.get("current_idea", state.get("ideas", [{}])[0])
-            current_verdict = state.get("reviewer_verdict", "YELLOW")
-            if HITL_DECISION == "disputed" and state.get("status") == "awaiting-hitl-2":
-                current_verdict = "YELLOW"
-
-        if current_verdict == "GREEN":
-            pass
-        elif current_verdict == "YELLOW" or (continued and HITL_DECISION == "disputed"):
-            state["arch_iterations"] = state.get("arch_iterations", 0)
-            arch_result = step("04_architect", "architect", state)
-            state["mutated_idea"] = arch_result.get("mutated_idea", current_idea)
-            state["arch_iterations"] = arch_result.get("arch_iterations", state.get("arch_iterations", 0) + 1)
-            current_idea = state["mutated_idea"]
-            state["current_idea"] = current_idea
-        else:
-            save_state(state, "archived", "red_confirmed")
-            print("Archived due to RED verdict.")
-            return
-
-        # 4. Strategist
-        strat_result = step("05_strategist", "strategist", state)
-        state["strategy"] = strat_result
-
-        # 5. Financier
-        fin_result = step("06_financier", "financier", state)
-        state["finances"] = fin_result
-
-        fin_verdict = fin_result.get("verdict", "TIGHT")
-        if fin_verdict == "DEAD":
-            hitl_result = step("hitl-4", "hitl-4", state)
-            emit_hitl_issue(
-                "HITL-4",
-                state,
-                hitl_result.get("hitl_prompt", "Финансы показали DEAD. Подтвердить?"),
-                hitl_result.get("options", ["Подтверждаю DEAD", "Оспариваю"]),
-            )
-            save_state(state, "awaiting-hitl-4", "hitl_4_dead")
-            print("Stopped at HITL-4. Create issue and re-run with hitl_decision.")
-            return
-
-        if continued and HITL_DECISION == "disputed" and state.get("status") == "awaiting-hitl-4":
-            pass
-
-        # 6. Synthesizer
-        synth_result = step("07_synthesizer", "synthesizer", state)
-        state["synthesis"] = synth_result
-
-        # 7. HITL-5
-        hitl_result = step("hitl-5", "hitl-5", state)
-        emit_hitl_issue(
-            "HITL-5",
-            state,
-            hitl_result.get("hitl_prompt", "Финальное решение: GO или NO-GO?"),
-            hitl_result.get("options", ["GO", "NO-GO"]),
-        )
-        save_state(state, "awaiting-hitl-5", "hitl_5_final")
-        print("Stopped at HITL-5. Create issue and re-run with hitl_decision.")
-        return
-
+        state = run_full(state)
+        save_artifact("final", state)
+        print("Pipeline complete. Final status:", state.get("status"))
     except Exception as exc:
         print(f"FATAL: {exc}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         try:
-            save_state(state if 'state' in dir() else {}, "error", str(exc))
+            save_artifact("final", {"status": "error", "error": str(exc)})
         except Exception:
             pass
         sys.exit(1)
 
 
 if __name__ == "__main__":
-    run()
+    main()
