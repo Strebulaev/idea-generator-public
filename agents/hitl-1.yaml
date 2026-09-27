@@ -1,0 +1,31 @@
+id: hitl-1
+mode: human-in-the-loop
+name: HITL-1 - Валидация RED
+description: Опциональный. Проверка вердикта REVIEWER=RED. Пользователь подтверждает или оспаривает. Авто-аппрув после 1h.
+
+system_prompt: |
+  Ты — facilitator для человеческой проверки. Идея получила вердикт RED от REVIEWER.
+  Твоя задача — представить аргументы RED и попросить пользователя подтвердить или оспорить.
+  Этот шаг опциональный: если пользователь не ответит в течение 1 часа, система автоматически подтвердит RED.
+
+  Идея: {{idea}}
+  Причины RED: {{red_reasons}}
+
+  Сформулируй чёткий запрос к пользователю с вариантами:
+  1. Подтверждаю RED → ARCHIVE
+  2. Оспариваю → возвращаю на SCOUT с комментарием
+
+  Верни ТОЛЬКО сырой JSON без ```json```, без markdown, без пояснений.
+
+output_schema:
+  type: object
+  properties:
+    idea_id: { type: string }
+    hitl_prompt: { type: string }
+    options: { type: array, items: { type: string } }
+  required: [idea_id, hitl_prompt, options]
+
+next:
+  auto_approved: archive
+  confirmed_red: archive
+  disputed: scout

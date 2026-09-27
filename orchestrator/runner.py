@@ -23,6 +23,8 @@ GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 CONTINUE_RUN_ID = os.environ.get("CONTINUE_RUN_ID", "")
 HITL_DECISION = os.environ.get("HITL_DECISION", "")
+HITL1_TIMEOUT_SECONDS = int(os.environ.get("HITL1_TIMEOUT_SECONDS", "3600"))
+HITL2_TIMEOUT_SECONDS = int(os.environ.get("HITL2_TIMEOUT_SECONDS", "3600"))
 QDRANT_ENABLED = bool(os.environ.get("QDRANT_URL"))
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -34,7 +36,22 @@ STATE_FILE = ARTIFACTS_DIR / "state.json"
 
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
-from orchestrator.qdrant_store import save_record, load_record, list_run_keys, ensure_collection, save_idea, list_run_ideas, search_ideas, ensure_collection
+from orchestrator.qdrant_store import (
+    save_record,
+    load_record,
+    list_run_keys,
+    ensure_collection,
+    save_idea,
+    list_run_ideas,
+    search_ideas,
+    ensure_collection,
+    create_task,
+    update_task,
+    append_event,
+    get_pending_tasks,
+    get_task_events,
+    get_open_hitl_issues,
+)
 
 
 def gh_request(method, path, **kwargs):
@@ -156,7 +173,6 @@ def save_artifact(name: str, data: dict | str) -> Path:
     if isinstance(data, str):
         path.write_text(data, encoding="utf-8")
     else:
-        # Use a safe JSON serializer that replaces non-serializable objects
         def _default(o):
             try:
                 return repr(o)
@@ -203,6 +219,50 @@ def load_state() -> dict[str, Any]:
     return {}
 
 
+def emit_event(event_type: str, stage: str, payload: dict[str, Any]) -> None:
+    if not QDRANT_ENABLED:
+        return
+    try:
+        event = {
+            "event_id": str(__import__("uuid").uuid4()),
+            "task_id": RUN_ID,
+            "run_id": RUN_ID,
+            "type": event_type,
+            "stage": stage,
+            "status": "succeeded" if event_type in ("step_complete", "hitl_decision", "hitl_auto_approved", "archive", "recap") else "in_process",
+            "payload": payload,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        append_event(event)
+    except Exception as exc:
+        print(f"QDRANT_EVENT_ERROR type={event_type} err={exc}", file=sys.stderr)
+
+
+def create_or_update_task(state: dict[str, Any]) -> None:
+    if not QDRANT_ENABLED:
+        return
+    try:
+        task = {
+            "task_id": RUN_ID,
+            "run_id": RUN_ID,
+            "topic": state.get("topic", ""),
+            "domain": state.get("domain", ""),
+            "constraints": state.get("constraints"),
+            "status": state.get("status", "pending"),
+            "current_step": state.get("current_step", STEP_NAME or "brainstormer"),
+            "arch_iterations": state.get("arch_iterations", 0),
+            "retry_count": state.get("retry_count", 0),
+            "created_at": state.get("started_at", datetime.now(timezone.utc).isoformat()),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "finished_at": state.get("finished_at"),
+            "result_ref": state.get("result_ref"),
+            "error": state.get("error"),
+        }
+        create_task(task)
+    except Exception as exc:
+        print(f"QDRANT_TASK_ERROR err={exc}", file=sys.stderr)
+
+
 def emit_hitl_issue(hitl_id: str, state: dict[str, Any], prompt_text: str, options: list[str]) -> dict:
     current_idea = state.get("current_idea") or state.get("mutated_idea") or (state.get("ideas", [{}])[0])
     idea_block = ""
@@ -222,29 +282,63 @@ def emit_hitl_issue(hitl_id: str, state: dict[str, Any], prompt_text: str, optio
     prompt_block = f"### 🧠 Запрос\n{prompt_text}\n"
     options_block = "### 🎯 Варианты\n" + "\n".join([f"{i+1}. {o}" for i, o in enumerate(options)]) + "\n"
 
+    timeout_seconds = HITL1_TIMEOUT_SECONDS if hitl_id == "HITL-1" else HITL2_TIMEOUT_SECONDS if hitl_id == "HITL-2" else 0
+    timeout_info = f"\n\n⏰ Авто-аппрув через {timeout_seconds} секунд при отсутствии решения." if timeout_seconds else "\n\n⚠️ Это обязательный шаг, авто-аппрув не применяется."
+
     context_block = f"""### 📌 Контекст
 - **RUN_ID:** {RUN_ID}
 - **Хэш workflow run:** {GITHUB_REPOSITORY}/actions/runs/{RUN_ID}
 - **Тема:** {state.get('topic', '-')}
 - **Домен:** {state.get('domain', '-')}
 - **Ограничения:** {state.get('constraints', '-') or '-'}
+{timeout_info}
 """
 
     body = "\n".join([context_block, idea_block, risks_block, prompt_block, options_block])
 
     issue_title = f"[HITL] {hitl_id} — требуется решение для RUN_ID={RUN_ID}"
-    issue = create_github_issue(issue_title, body, labels=["idea-generator", "hitl", "awaiting-decision"])
-    print(f"HITL issue created: {issue.get('html_url') if issue else 'N/A'}")
+    labels = ["idea-generator", "hitl", "awaiting-decision"]
+    if hitl_id == "HITL-3":
+        labels.append("required")
+    issue = create_github_issue(issue_title, body, labels=labels)
+    issue_url = issue.get("html_url") if issue else ""
+    print(f"HITL issue created: {issue_url}")
+    if QDRANT_ENABLED:
+        try:
+            emit_event(
+                "hitl_created",
+                hitl_id.lower().replace("hitl-", "hitl_").replace("-", "_"),
+                {
+                    "issue_url": issue_url,
+                    "hitl_id": hitl_id,
+                    "prompt": prompt_text,
+                    "options": options,
+                    "timeout_seconds": timeout_seconds,
+                    "auto_approved": bool(timeout_seconds),
+                },
+            )
+        except Exception as exc:
+            print(f"QDRANT_EVENT_ERROR hitl_created err={exc}", file=sys.stderr)
     return issue or {}
 
 
 def step(name: str, agent_id: str, context: dict[str, Any]) -> dict:
     print(f"[STEP] {name} -> agent={agent_id}")
+    if QDRANT_ENABLED:
+        try:
+            emit_event("step_start", name, {"step": name, "agent": agent_id})
+        except Exception as exc:
+            print(f"QDRANT_EVENT_ERROR step_start err={exc}", file=sys.stderr)
     agent = load_agent(agent_id)
     system_prompt = render_prompt(agent["system_prompt"], context)
     user_prompt = json.dumps(context, ensure_ascii=False)
     result = call_kilo(system_prompt, user_prompt, agent.get("output_schema"))
     save_artifact(name, result)
+    if QDRANT_ENABLED:
+        try:
+            emit_event("step_complete", name, {"step": name, "agent": agent_id})
+        except Exception as exc:
+            print(f"QDRANT_EVENT_ERROR step_complete err={exc}", file=sys.stderr)
     return result
 
 
@@ -354,39 +448,39 @@ def run_synthesizer(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def run_hitl_1(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("hitl-1", "hitl-1", state)
+    emit_hitl_issue(
+        "HITL-1",
+        state,
+        result.get("hitl_prompt", "Reviewer вынес RED. Подтвердить?"),
+        result.get("options", ["Подтверждаю RED", "Оспариваю"]),
+    )
+    state["status"] = "awaiting-hitl-1"
+    return state
+
+
 def run_hitl_2(state: dict[str, Any]) -> dict[str, Any]:
     result = step("hitl-2", "hitl-2", state)
     emit_hitl_issue(
         "HITL-2",
         state,
-        result.get("hitl_prompt", "Reviewer вынес RED. Подтвердить?"),
-        result.get("options", ["Подтверждаю RED", "Оспариваю"]),
+        result.get("hitl_prompt", "Финансы показали DEAD. Подтвердить?"),
+        result.get("options", ["Подтверждаю DEAD", "Оспариваю"]),
     )
     state["status"] = "awaiting-hitl-2"
     return state
 
 
-def run_hitl_4(state: dict[str, Any]) -> dict[str, Any]:
-    result = step("hitl-4", "hitl-4", state)
+def run_hitl_3(state: dict[str, Any]) -> dict[str, Any]:
+    result = step("hitl-3", "hitl-3", state)
     emit_hitl_issue(
-        "HITL-4",
-        state,
-        result.get("hitl_prompt", "Финансы показали DEAD. Подтвердить?"),
-        result.get("options", ["Подтверждаю DEAD", "Оспариваю"]),
-    )
-    state["status"] = "awaiting-hitl-4"
-    return state
-
-
-def run_hitl_5(state: dict[str, Any]) -> dict[str, Any]:
-    result = step("hitl-5", "hitl-5", state)
-    emit_hitl_issue(
-        "HITL-5",
+        "HITL-3",
         state,
         result.get("hitl_prompt", "Финальное решение: GO или NO-GO?"),
         result.get("options", ["GO", "NO-GO"]),
     )
-    state["status"] = "awaiting-hitl-5"
+    state["status"] = "awaiting-hitl-3"
     return state
 
 
@@ -398,10 +492,11 @@ ROUTER = {
     "strategist": run_strategist,
     "financier": run_financier,
     "synthesizer": run_synthesizer,
+    "hitl-1": run_hitl_1,
     "hitl-2": run_hitl_2,
-    "hitl-4": run_hitl_4,
-    "hitl-5": run_hitl_5,
+    "hitl-3": run_hitl_3,
     "qdrant-healthcheck": None,
+    "full": run_full,
 }
 
 
@@ -414,11 +509,132 @@ def qdrant_healthcheck(state: dict[str, Any]) -> dict[str, Any]:
             print(f"QDRANT_HEALTHCHECK_ERROR err={exc}", file=sys.stderr)
     return state
 
-# replace placeholder with function
+
 ROUTER["qdrant-healthcheck"] = qdrant_healthcheck
 
 
+def continue_after_hitl(state: dict[str, Any]) -> dict[str, Any]:
+    status = state.get("status", "")
+    decision = (HITL_DECISION or "").lower()
+
+    if status == "awaiting-hitl-1":
+        if decision == "dispute":
+            state["hitl_decision"] = "disputed"
+            emit_event("hitl_decision", "hitl-1", {"decision": "disputed", "hitl_id": "HITL-1"})
+            state = run_scout(state)
+            save_state(state)
+            state = run_reviewer(state)
+            save_state(state)
+            verdict = state.get("reviewer_verdict", "YELLOW")
+            if verdict == "RED":
+                state = run_hitl_1(state)
+                save_state(state)
+                return state
+            if verdict == "YELLOW":
+                state = run_post_arch_loop(state)
+                if state.get("status") in ("archived", "awaiting-hitl-1", "awaiting-hitl-2", "awaiting-hitl-3", "succeeded", "failed"):
+                    return state
+            state = run_strategist(state)
+            save_state(state)
+            strat_result = state.get("strategy", {})
+            strat_verdict = strat_result.get("verdict", "FIT") if isinstance(strat_result, dict) else "FIT"
+            if strat_verdict in ("NO-FIT",):
+                state["status"] = "archived"
+                state["finished_at"] = datetime.now(timezone.utc).isoformat()
+                save_state(state)
+                emit_event("archive", "archive", {"reason": f"STRAT verdict={strat_verdict}"})
+                return state
+            state = run_financier(state)
+            save_state(state)
+            if state.get("finances", {}).get("verdict") == "DEAD":
+                state = run_hitl_2(state)
+                save_state(state)
+                return state
+            state = run_synthesizer(state)
+            save_state(state)
+            state = run_hitl_3(state)
+            save_state(state)
+            return state
+        else:
+            state["hitl_decision"] = "confirmed"
+            emit_event("hitl_decision", "hitl-1", {"decision": "confirmed", "hitl_id": "HITL-1"})
+            state["status"] = "archived"
+            state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            emit_event("archive", "archive", {"reason": "HITL-1 confirmed RED"})
+            return state
+
+    elif status == "awaiting-hitl-2":
+        if decision == "dispute":
+            state["hitl_decision"] = "disputed"
+            emit_event("hitl_decision", "hitl-2", {"decision": "disputed", "hitl_id": "HITL-2"})
+            state = run_financier(state)
+            save_state(state)
+            if state.get("finances", {}).get("verdict") == "DEAD":
+                state = run_hitl_2(state)
+                save_state(state)
+                return state
+            state = run_synthesizer(state)
+            save_state(state)
+            state = run_hitl_3(state)
+            save_state(state)
+            return state
+        else:
+            state["hitl_decision"] = "confirmed"
+            emit_event("hitl_decision", "hitl-2", {"decision": "confirmed", "hitl_id": "HITL-2"})
+            state["status"] = "archived"
+            state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            emit_event("archive", "archive", {"reason": "HITL-2 confirmed DEAD"})
+            return state
+
+    elif status == "awaiting-hitl-3":
+        state["hitl_decision"] = decision
+        emit_event("hitl_decision", "hitl-3", {"decision": decision, "hitl_id": "HITL-3"})
+        if decision == "go":
+            state["status"] = "succeeded"
+        else:
+            state["status"] = "archived"
+            emit_event("archive", "archive", {"reason": "HITL-3 NO-GO"})
+        state["finished_at"] = datetime.now(timezone.utc).isoformat()
+        save_state(state)
+        return state
+
+    return state
+
+
+def run_post_arch_loop(state: dict[str, Any]) -> dict[str, Any]:
+    for arch_pass in range(2):
+        state = run_architect(state)
+        save_state(state)
+        if state.get("arch_iterations", 0) >= 2:
+            state["status"] = "archived"
+            state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            emit_event("archive", "archive", {"reason": "max arch_iterations reached"})
+            return state
+        state = run_reviewer(state)
+        save_state(state)
+        review_verdict = state.get("reviewer_verdict", "YELLOW")
+        if review_verdict == "GREEN":
+            break
+        if review_verdict == "RED":
+            state = run_hitl_2(state)
+            save_state(state)
+            return state
+        if review_verdict == "YELLOW" and arch_pass == 1:
+            state["status"] = "archived"
+            state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            emit_event("archive", "archive", {"reason": "max arch_iterations reached after second YELLOW"})
+            return state
+    return state
+
+
 def run_full(state: dict[str, Any]) -> dict[str, Any]:
+    if CONTINUE_RUN_ID and HITL_DECISION:
+        return continue_after_hitl(state)
+
     state = run_brainstormer(state)
     save_state(state)
 
@@ -430,29 +646,61 @@ def run_full(state: dict[str, Any]) -> dict[str, Any]:
 
     verdict = state.get("reviewer_verdict", "YELLOW")
     if verdict == "RED":
-        state = run_hitl_2(state)
+        state = run_hitl_1(state)
         save_state(state)
         return state
     if verdict == "YELLOW":
-        state = run_architect(state)
-        save_state(state)
+        state = run_post_arch_loop(state)
+        if state.get("status") == "archived":
+            return state
 
     state = run_strategist(state)
     save_state(state)
+
+    strat_result = state.get("strategy", {})
+    strat_verdict = strat_result.get("verdict", "FIT") if isinstance(strat_result, dict) else "FIT"
+    if strat_verdict in ("NO-FIT",):
+        state["status"] = "archived"
+        state["finished_at"] = datetime.now(timezone.utc).isoformat()
+        save_state(state)
+        emit_event("archive", "archive", {"reason": f"STRAT verdict={strat_verdict}"})
+        return state
 
     state = run_financier(state)
     save_state(state)
 
     if state.get("finances", {}).get("verdict") == "DEAD":
-        state = run_hitl_4(state)
+        state = run_hitl_2(state)
         save_state(state)
         return state
 
     state = run_synthesizer(state)
     save_state(state)
-    state = run_hitl_5(state)
+    state = run_hitl_3(state)
     save_state(state)
     return state
+
+
+def get_step_status(state: dict[str, Any], step_name: str) -> str:
+    if step_name == "reviewer":
+        verdict = state.get("reviewer_verdict", "YELLOW")
+        return f"verdict-{verdict.lower()}"
+    if step_name == "architect":
+        if state.get("arch_iterations", 0) >= 2:
+            return "arch-max-iterations"
+        return "arch-complete"
+    if step_name == "strategist":
+        strat = state.get("strategy", {})
+        verdict = strat.get("verdict", "FIT") if isinstance(strat, dict) else "FIT"
+        return f"verdict-{verdict.lower()}"
+    if step_name == "financier":
+        verdict = state.get("finances", {}).get("verdict", "VIABLE")
+        return f"verdict-{verdict.lower()}"
+    if step_name in ("hitl-1", "hitl-2", "hitl-3"):
+        return f"awaiting-{step_name}"
+    if step_name == "synthesizer":
+        return "ready-for-hitl-3"
+    return "ok"
 
 
 def main():
@@ -477,7 +725,12 @@ def main():
             print(f"RUN_ID={RUN_ID} STEP={STEP_NAME}")
             state = runner(state)
             save_state(state)
-            status = state.get("status", "ok")
+            if QDRANT_ENABLED:
+                try:
+                    create_or_update_task(state)
+                except Exception as exc:
+                    print(f"QDRANT_TASK_UPDATE_ERROR err={exc}", file=sys.stderr)
+            status = state.get("status", get_step_status(state, STEP_NAME))
             print(json.dumps({"step": STEP_NAME, "status": status}, ensure_ascii=False))
             gh_output = os.environ.get("GITHUB_OUTPUT")
             if gh_output:
@@ -511,6 +764,12 @@ def main():
         print(f"CONSTRAINTS={state.get('constraints')}")
         print(f"MODEL={MODEL}")
         sys.stdout.flush()
+
+        if QDRANT_ENABLED:
+            try:
+                create_or_update_task(state)
+            except Exception as exc:
+                print(f"QDRANT_TASK_CREATE_ERROR err={exc}", file=sys.stderr)
 
         state = run_full(state)
         save_artifact("final", state)

@@ -1,4 +1,4 @@
-name: Idea Generator Pipeline Steps
+name: Idea Generator Pipeline
 
 on:
   workflow_dispatch:
@@ -26,6 +26,11 @@ on:
         required: false
         type: string
         default: ""
+      hitl_id:
+        description: "ID HITL-этапа для продолжения (hitl-1, hitl-2, hitl-3)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -44,8 +49,12 @@ jobs:
       TOPIC: ${{ inputs.topic }}
       DOMAIN: ${{ inputs.domain }}
       CONSTRAINTS: ${{ inputs.constraints }}
+      CONTINUE_RUN_ID: ${{ inputs.continue_run_id || '' }}
       RUN_ID: ${{ inputs.continue_run_id || format('{0}-{1}', github.run_id, github.run_attempt) }}
-      HITL_DECISION: ${{ inputs.hitl_decision }}
+      HITL_DECISION: ${{ inputs.hitl_decision || '' }}
+      HITL_ID: ${{ inputs.hitl_id || '' }}
+      HITL1_TIMEOUT_SECONDS: ${{ vars.HITL1_TIMEOUT_SECONDS || '3600' }}
+      HITL2_TIMEOUT_SECONDS: ${{ vars.HITL2_TIMEOUT_SECONDS || '3600' }}
       GITHUB_REPOSITORY: ${{ github.repository }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -63,63 +72,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests pyyaml python-dotenv qdrant-client
 
-      - name: Check Qdrant connectivity
+      - name: Run pipeline
+        id: pipeline
         run: python orchestrator/runner.py
         env:
-          STEP_NAME: qdrant-healthcheck
-
-      - name: BS — Brainstormer
-        id: brainstormer
-        run: python orchestrator/runner.py
-        env:
-          STEP_NAME: brainstormer
-
-      - name: SCOUT — Исследователь
-        id: scout
-        run: python orchestrator/runner.py
-        env:
-          STEP_NAME: scout
-
-      - name: REVIEWER — Оценщик
-        id: reviewer
-        run: python orchestrator/runner.py
-        env:
-          STEP_NAME: reviewer
-
-      - name: ARCH — Архитектор
-        id: architect
-        if: ${{ !(steps.reviewer.outputs.status == 'awaiting-hitl-2' || steps.reviewer.outputs.status == 'archived') }}
-        run: python orchestrator/runner.py
-        env:
-          STEP_NAME: architect
-
-      - name: STRAT — Стратег
-        id: strategist
-        if: ${{ !(steps.architect.outputs.status == 'awaiting-hitl-2' || steps.architect.outputs.status == 'archived') }}
-        run: python orchestrator/runner.py
-        env:
-          STEP_NAME: strategist
-
-      - name: FIN — Финансист
-        id: financier
-        if: ${{ !(steps.strategist.outputs.status == 'awaiting-hitl-2' || steps.strategist.outputs.status == 'archived') }}
-        run: python orchestrator/runner.py
-        env:
-          STEP_NAME: financier
-
-      - name: SYNTH — Синтезатор
-        id: synthesizer
-        if: ${{ !(steps.financier.outputs.status == 'awaiting-hitl-2' || steps.financier.outputs.status == 'archived' || steps.financier.outputs.status == 'awaiting-hitl-4') }}
-        run: python orchestrator/runner.py
-        env:
-          STEP_NAME: synthesizer
-
-      - name: HITL-5 — Финальный go/no-go
-        id: hitl-5
-        if: ${{ !(steps.synthesizer.outputs.status == 'awaiting-hitl-2' || steps.synthesizer.outputs.status == 'archived' || steps.synthesizer.outputs.status == 'awaiting-hitl-4') }}
-        run: python orchestrator/runner.py
-        env:
-          STEP_NAME: hitl-5
+          STEP_NAME: full
 
       - name: Upload artifacts
         if: always()

@@ -9,10 +9,10 @@ flowchart TD
 
     REV_DEC -->|🟢 GREEN| STRAT
     REV_DEC -->|🟡 YELLOW| ARCH
-    REV_DEC -->|🔴 RED| HITL2
+    REV_DEC -->|🔴 RED| HITL1
 
-    HITL2{{🧑‍💼 HITL-2<br/>валидация RED}} -->|подтверждён| ARCHIVE
-    HITL2 -->|оспорен| SCOUT
+    HITL1{{🧑‍💼 HITL-1<br/>валидация RED}} -->|подтверждён| ARCHIVE
+    HITL1 -->|оспорен| SCOUT
 
     ARCH[🏗️ АРХИТЕКТОР<br/>recall-first<br/>мутирует идею под удары<br/>меняет: scope, сегмент,<br/>модель, юрисдикцию<br/>счётчик arch_iterations<br/>при = 2 → принудительный ARCHIVE]
 
@@ -31,15 +31,15 @@ flowchart TD
     FIN[💰 ФИНАНСИСТ<br/>precision-first, жёсткий<br/>CAC, LTV, runway,<br/>точка безубыточности<br/>вердикт: VIABLE / TIGHT / DEAD] --> FIN_DEC{Вердикт<br/>ФИНАНСИСТА}
 
     FIN_DEC -->|🟢 VIABLE<br/>🟡 TIGHT| SYNTH
-    FIN_DEC -->|🔴 DEAD| HITL4
+    FIN_DEC -->|🔴 DEAD| HITL2
 
-    HITL4{{🧑‍💼 HITL-4<br/>проверка DEAD}} -->|подтверждён| ARCHIVE
-    HITL4 -->|оспорен| FIN
+    HITL2{{🧑‍💼 HITL-2<br/>проверка DEAD}} -->|подтверждён| ARCHIVE
+    HITL2 -->|оспорен| FIN
 
-    SYNTH[⚖️ СИНТЕЗАТОР<br/>финальное решение<br/>one-pager + go/no-go<br/>не генерирует, не критикует,<br/>не считает — только решает] --> HITL5
+    SYNTH[⚖️ СИНТЕЗАТОР<br/>финальное решение<br/>one-pager + go/no-go<br/>не генерирует, не критикует,<br/>не считает — только решает] --> HITL3
 
-    HITL5{{🧑‍💼 HITL-5<br/>финальный go/no-go}} -->|go| OUT
-    HITL5 -->|no-go| ARCHIVE
+    HITL3{{🧑‍💼 HITL-3<br/>финальный go/no-go}} -->|go| OUT
+    HITL3 -->|no-go| ARCHIVE
 
     OUT([📦 OUTPUT:<br/>• go-идеи → прототип<br/>• архив → пересмотр раз в квартал<br/>• журнал решений → калибровка])
 
@@ -66,5 +66,5 @@ flowchart TD
     class FIN financier
     class SYNTH synthesizer
     class ARCHIVE archive
-    class HITL2,HITL4,HITL5 hitl
+    class HITL1,HITL2,HITL3 hitl
     class OUT,START output

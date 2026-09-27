@@ -2,6 +2,15 @@
 
 Multi-agent startup idea generation pipeline based on `schema.mermaid`.
 
+## Architecture
+
+Проект разделён на два репозитория:
+
+- **`idea-generator-private`** (приватный) — orchestrator, агенты, промпты `agents/*.yaml`, секреты. Без запускаемых workflow.
+- **`idea-generator-public`** (публичный) — poller и GitHub Actions workflow, который выполняется на бесплатных минутах. Содержит минимальный код для запуска пайплайна.
+
+Публичный workflow выполняет весь пайплайн (BS → SCOUT → REVIEWER → ARCH → STRAT → FIN → SYNTH → HITL). При HITL создаются issues в приватном репо.
+
 ## Quick start
 
 ```bash
@@ -14,7 +23,7 @@ $env:TOPIC="AI tutoring"; $env:DOMAIN="education"; $env:CONSTRAINTS="budget<$50k
 
 ## GitHub Actions
 
-Trigger via **Actions → Idea Generator Pipeline Steps → Run workflow** with:
+Trigger via **Actions → Idea Generator Pipeline → Run workflow** with:
 - `topic`
 - `domain`
 - `constraints` (optional)
@@ -34,14 +43,15 @@ Secrets:
 ### Continuing after HITL
 
 When workflow stops at HITL, you can continue by:
-- Adding a comment `GO` / `NO-GO` / `CONFIRM` / `DISPUTE` in the created issue, or
+- Adding a comment `GO` / `NO-GO` / `CONFIRM` / `DISPUTE` in the created issue in private repo, or
 - Re-running workflow with:
   - `continue_run_id` — the RUN_ID from the stopped run
   - `hitl_decision` — `confirm` or `dispute`
 
-## Architecture
+## Components
 
 - `agents/*.yaml` — agent prompts and schemas
 - `orchestrator/runner.py` — pipeline execution
-- `.github/workflows/idea-generator.yml` — CI entrypoint
+- `orchestrator/qdrant_store.py` — Qdrant storage for tasks and events
+- `.github/workflows/pipeline.yml` — CI entrypoint
 - `schema.mermaid` — source of truth for flow
