@@ -1,6 +1,6 @@
 import os
 import json
-import hashlib
+import uuid
 from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
@@ -9,6 +9,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
 QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "idea_generator")
+ID_NAMESPACE = uuid.UUID("12345678-1234-5678-1234-567812345678")
 
 
 def get_client() -> QdrantClient:
@@ -29,8 +30,7 @@ def ensure_collection(client: QdrantClient | None = None) -> QdrantClient:
 
 
 def _make_point_id(run_id: str, key: str) -> str:
-    raw = f"{run_id}:{key}"
-    return hashlib.sha256(raw.encode()).hexdigest()
+    return str(uuid.uuid5(ID_NAMESPACE, f"{run_id}:{key}"))
 
 
 def save_record(run_id: str, key: str, data: Any) -> None:

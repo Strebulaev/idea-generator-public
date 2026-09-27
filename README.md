@@ -23,6 +23,8 @@ Secrets:
 - `KILO_GATEWAY_URL` — Kilo Gateway endpoint
 - `KILO_API_KEY` — API key for Kilo Gateway
 - `IDEA_GENERATOR_MODEL` — model override, defaults to `stepfun/step-3.7-flash:free`
+- `QDRANT_URL` — Qdrant endpoint, required for persistent storage
+- `QDRANT_API_KEY` — optional, if your Qdrant requires auth
 
 ### Storage
 
