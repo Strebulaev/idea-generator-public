@@ -76,27 +76,50 @@ def load_record(run_id: str, key: str) -> Any | None:
     return data
 
 
-def list_run_keys(run_id: str) -> list[str]:
-    client = ensure_collection()
-    points, _ = client.scroll(
-        collection_name=QDRANT_COLLECTION,
-        scroll_filter={
-            "must": [
-                {
-                    "key": "run_id",
-                    "match": {"value": run_id},
-                }
-            ]
-        },
-        limit=1000,
+def _make_state_point_id(run_id: str, key: str) -> str:
+    return f"state:{run_id}:{key}"
+
+
+def _make_idea_point_id(run_id: str, idea_id: str) -> str:
+    return f"idea:{run_id}:{idea_id}"
+
+
+def save_record(run_id: str, key: str, data: Any) -> None:
+    client = ensure_state_collection()
+    payload = {
+        "run_id": run_id,
+        "key": key,
+        "type": "state",
+        "data": data if isinstance(data, dict) else {"value": data},
+    }
+    client.upsert(
+        collection_name=STATE_COLLECTION,
+        points=[
+            PointStruct(
+                id=_make_state_point_id(run_id, key),
+                vector=[0.0],
+                payload=payload,
+            )
+        ],
     )
-    keys = []
-    for p in points:
-        payload = p.payload or {}
-        key = payload.get("key")
-        if key:
-            keys.append(key)
-    return sorted(keys)
+
+
+def load_record(run_id: str, key: str) -> Any | None:
+    client = ensure_state_collection()
+    point_id = _make_state_point_id(run_id, key)
+    point = client.retrieve(
+        collection_name=STATE_COLLECTION,
+        ids=[point_id],
+    )
+    if not point:
+        return None
+    payload = point[0].payload
+    if not payload:
+        return None
+    data = payload.get("data", {})
+    if isinstance(data, dict) and "value" in data and len(data) == 1:
+        return data["value"]
+    return data
 
 
 def save_idea(run_id: str, idea: dict[str, Any]) -> None:
@@ -119,17 +142,41 @@ def save_idea(run_id: str, idea: dict[str, Any]) -> None:
         "tags": tags,
         "source": idea.get("source") or "brainstormer",
         "status": idea.get("status") or "new",
+        "type": "idea",
     }
     client.upsert(
         collection_name=ideas_collection,
         points=[
             PointStruct(
-                id=_make_point_id(run_id, f"idea:{idea_id}"),
+                id=_make_idea_point_id(run_id, str(idea_id)),
                 vector=[0.0],
                 payload=payload,
             )
         ],
     )
+
+
+def list_run_keys(run_id: str) -> list[str]:
+    client = ensure_state_collection()
+    points, _ = client.scroll(
+        collection_name=STATE_COLLECTION,
+        scroll_filter={
+            "must": [
+                {
+                    "key": "run_id",
+                    "match": {"value": run_id},
+                }
+            ]
+        },
+        limit=1000,
+    )
+    keys = []
+    for p in points:
+        payload = p.payload or {}
+        key = payload.get("key")
+        if key:
+            keys.append(key)
+    return sorted(keys)
 
 
 def list_run_ideas(run_id: str) -> list[dict[str, Any]]:
