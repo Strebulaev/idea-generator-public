@@ -39,6 +39,19 @@ def create_workflow_dispatch(workflow: str, ref: str, inputs: dict[str, Any]) ->
     return {"status": resp.status_code}
 
 
+def get_issue(issue_number: int, repo: str | None = None) -> dict[str, Any] | None:
+    path = f"/issues/{issue_number}"
+    return _request("GET", path, repo=repo)
+
+
+def get_issue_comments(issue_number: int, repo: str | None = None) -> list[dict[str, Any]]:
+    path = f"/issues/{issue_number}/comments"
+    result = _request("GET", path, repo=repo)
+    if not result:
+        return []
+    return result
+
+
 def list_issues(repo: str | None = None, state: str = "open", labels: str | None = None) -> list[dict[str, Any]]:
     params: dict[str, Any] = {"state": state}
     if labels:

@@ -381,6 +381,26 @@ def get_task_events(task_id: str, limit: int = 200) -> list[dict[str, Any]]:
     return events
 
 
+def get_tasks_by_status(statuses: list[str], limit: int = 50) -> list[dict[str, Any]]:
+    client = ensure_tasks_collection()
+    scroll_filter = {
+        "should": [
+            {"key": "status", "match": {"value": status}}
+            for status in statuses
+        ]
+    }
+    points, _ = client.scroll(
+        collection_name=TASKS_COLLECTION,
+        scroll_filter=scroll_filter,
+        limit=limit,
+    )
+    tasks = []
+    for p in points:
+        payload = p.payload or {}
+        tasks.append(dict(payload))
+    return tasks
+
+
 def get_open_hitl_issues(task_id: str | None = None, hitl_type: str | None = None) -> list[dict[str, Any]]:
     client = ensure_events_collection()
     must_conditions = [
