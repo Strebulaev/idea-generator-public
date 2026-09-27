@@ -34,7 +34,7 @@ STATE_FILE = ARTIFACTS_DIR / "state.json"
 
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
-from orchestrator.qdrant_store import save_record, load_record, list_run_keys
+from orchestrator.qdrant_store import save_record, load_record, list_run_keys, ensure_collection, ensure_collection
 
 
 def gh_request(method, path, **kwargs):
