@@ -496,7 +496,6 @@ ROUTER = {
     "hitl-2": run_hitl_2,
     "hitl-3": run_hitl_3,
     "qdrant-healthcheck": None,
-    "full": run_full,
 }
 
 
@@ -679,6 +678,9 @@ def run_full(state: dict[str, Any]) -> dict[str, Any]:
     state = run_hitl_3(state)
     save_state(state)
     return state
+
+
+ROUTER["full"] = run_full
 
 
 def get_step_status(state: dict[str, Any], step_name: str) -> str:
