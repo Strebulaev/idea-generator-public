@@ -25,9 +25,12 @@ ID_NAMESPACE = uuid.UUID("12345678-1234-5678-1234-567812345678")
 def get_client() -> "QdrantClient":
     if not QDRANT_AVAILABLE:
         raise RuntimeError("qdrant_client package is not installed")
+    url = QDRANT_URL
+    if url.startswith("https://") and ":443" not in url:
+        url = f"{url}:443"
     if QDRANT_API_KEY:
-        return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-    return QdrantClient(url=QDRANT_URL)
+        return QdrantClient(url=url, api_key=QDRANT_API_KEY, check_compatibility=False)
+    return QdrantClient(url=url, check_compatibility=False)
 
 
 def ensure_collection(client: Optional["QdrantClient"] = None) -> "QdrantClient":
