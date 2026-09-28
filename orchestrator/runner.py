@@ -342,11 +342,35 @@ def step(name: str, agent_id: str, context: dict[str, Any]) -> dict:
     return result
 
 
+def _extract_ideas_from_result(result: Any) -> list[dict[str, Any]]:
+    ideas: list[dict[str, Any]] = []
+    if isinstance(result, dict):
+        raw_ideas = result.get("ideas")
+        if isinstance(raw_ideas, list):
+            for idea in raw_ideas:
+                if isinstance(idea, dict):
+                    ideas.append({
+                        "id": str(idea.get("id") or idea.get("idea_id") or ""),
+                        "title": str(idea.get("title") or ""),
+                        "description": str(idea.get("description") or ""),
+                        "tags": idea.get("tags") or [],
+                    })
+            if ideas:
+                return ideas
+        if result.get("title") or result.get("description"):
+            ideas.append({
+                "id": str(result.get("id") or result.get("idea_id") or ""),
+                "title": str(result.get("title") or ""),
+                "description": str(result.get("description") or ""),
+                "tags": result.get("tags") or [],
+            })
+            return ideas
+    return ideas
+
+
 def run_brainstormer(state: dict[str, Any]) -> dict[str, Any]:
     result = step("01_brainstormer", "brainstormer", state)
-    state["ideas"] = result.get("ideas") or []
-    if not state["ideas"] and isinstance(result, dict) and result.get("id") and result.get("title"):
-        state["ideas"] = [result]
+    state["ideas"] = _extract_ideas_from_result(result)
     if len(state["ideas"]) < 15:
         print(f"Brainstormer returned {len(state['ideas'])} ideas, requesting more to reach 15...", file=sys.stderr)
         for expand_attempt in range(3):
@@ -380,7 +404,7 @@ def run_brainstormer(state: dict[str, Any]) -> dict[str, Any]:
                     "required": ["ideas"],
                 },
             )
-            expanded = expand_result.get("ideas") or []
+            expanded = _extract_ideas_from_result(expand_result)
             if len(expanded) >= 15:
                 existing_ids = {idea.get("id") for idea in state["ideas"]}
                 for idea in expanded:
