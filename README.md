@@ -50,8 +50,8 @@ When workflow stops at HITL, you can continue by:
 
 ## Components
 
-- `agents/*.yaml` — agent prompts and schemas
-- `orchestrator/runner.py` — pipeline execution
-- `orchestrator/qdrant_store.py` — Qdrant storage for tasks and events
-- `.github/workflows/pipeline.yml` — CI entrypoint
+- `poller.py` — polls Qdrant for pending tasks and dispatches workflow
+- `github_client.py` — GitHub API client for workflow and issue management
+- `.github/workflows/poller.yml` — cron workflow that runs poller every 5 minutes
+- `.github/workflows/pipeline.yml` — main pipeline workflow
 - `schema.mermaid` — source of truth for flow
