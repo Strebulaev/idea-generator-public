@@ -1,57 +1,39 @@
-# Idea Generator
+# Idea Generator (Private)
 
-Multi-agent startup idea generation pipeline based on `schema.mermaid`.
+This repository contains the private code for the idea-generator project:
+- Orchestrator and pipeline logic
+- Agent prompts and schemas
+- Qdrant storage configuration
 
-## Architecture
+## Structure
 
-Проект разделён на два репозитория:
-
-- **`idea-generator-private`** (приватный) — orchestrator, агенты, промпты `agents/*.yaml`, секреты. Без запускаемых workflow.
-- **`idea-generator-public`** (публичный) — poller и GitHub Actions workflow, который выполняется на бесплатных минутах. Содержит минимальный код для запуска пайплайна.
-
-Публичный workflow выполняет весь пайплайн (BS → SCOUT → REVIEWER → ARCH → STRAT → FIN → SYNTH → HITL). При HITL создаются issues в приватном репо.
-
-## Quick start
-
-```bash
-# Install
-pip install -r requirements.txt
-
-# Run locally
-$env:TOPIC="AI tutoring"; $env:DOMAIN="education"; $env:CONSTRAINTS="budget<$50k"; python orchestrator/runner.py
+```
+orchestrator/
+  runner.py — pipeline execution
+  qdrant_store.py — Qdrant storage
+agents/
+  *.yaml — agent prompts and schemas
+docs/
+  decisions/ — architecture decisions
+  facts/ — current state facts
+  plans/ — implementation plans
+schema.mermaid — pipeline flow diagram
+requirements.txt — Python dependencies
 ```
 
-## GitHub Actions
+## Running
 
-Trigger via **Actions → Idea Generator Pipeline → Run workflow** with:
-- `topic`
-- `domain`
-- `constraints` (optional)
+This repository does not contain runnable workflows. The pipeline is executed in the public repository (`idea-generator-public`) using GitHub Actions.
 
-Secrets:
-- `KILO_GATEWAY_URL` — Kilo Gateway endpoint
-- `KILO_API_KEY` — API key for Kilo Gateway
-- `IDEA_GENERATOR_MODEL` — model override, defaults to `stepfun/step-3.7-flash:free`
-- `QDRANT_URL` — Qdrant endpoint, required for persistent storage
-- `QDRANT_API_KEY` — optional, if your Qdrant requires auth
+## Secrets
 
-### Storage
+Secrets are stored in the public repository's GitHub Actions settings:
+- `KILO_GATEWAY_URL`
+- `KILO_API_KEY`
+- `IDEA_GENERATOR_MODEL`
+- `QDRANT_URL`
+- `QDRANT_API_KEY`
 
-- Primary: **Qdrant** via `QDRANT_URL` env var.
-- Fallback: GitHub Actions artifacts (`artifacts/<RUN_ID>/`).
+## HITL Issues
 
-### Continuing after HITL
-
-When workflow stops at HITL, you can continue by:
-- Adding a comment `GO` / `NO-GO` / `CONFIRM` / `DISPUTE` in the created issue in private repo, or
-- Re-running workflow with:
-  - `continue_run_id` — the RUN_ID from the stopped run
-  - `hitl_decision` — `confirm` or `dispute`
-
-## Components
-
-- `poller.py` — polls Qdrant for pending tasks and dispatches workflow
-- `github_client.py` — GitHub API client for workflow and issue management
-- `.github/workflows/poller.yml` — cron workflow that runs poller every 5 minutes
-- `.github/workflows/pipeline.yml` — main pipeline workflow
-- `schema.mermaid` — source of truth for flow
+Human-in-the-loop issues are created in this repository when the pipeline requires manual intervention.
