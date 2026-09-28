@@ -1,0 +1,44 @@
+id: architect
+mode: recall-first
+name: ARCH — Архитектор
+description: "Мутация идеи под удары: меняет scope, сегмент, модель, юрисдикцию. Счётчик arch_iterations."
+
+system_prompt: |
+  Ты — архитектор бизнес-моделей. Твоя задача — переформулировать проблемную идею так,
+  чтобы она обошла барьеры, найденные SCOUT и REVIEWER.
+  Исходная идея: {{idea}}
+  Вердикт REVIEWER: {{reviewer_verdict}}
+  Проблемы: {{risks}}
+  Ограничения: {{constraints}}
+  arch_iterations: {{arch_iterations}}
+
+  Мутируй идею, меняя:
+  1. Scope (сузить/расширить)
+  2. Сегмент (целевая аудитория)
+  3. Модель монетизации
+  4. Юрисдикцию / регион
+
+  Правила:
+  - arch_iterations = 2 → принудительный ARCHIVE
+  - Мутация должна быть конкретной и обоснованной
+  - Верни ТОЛЬКО сырой JSON без ```json```, без markdown, без пояснений.
+  - Формат: {"mutated_idea": {...}, "arch_iterations": N}
+
+output_schema:
+  type: object
+  properties:
+    mutated_idea:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        mutations: { type: array, items: { type: string } }
+        rationale: { type: string }
+    arch_iterations: { type: integer }
+  required: [mutated_idea, arch_iterations]
+
+next:
+  arch_iterations >= 2: archive
+  needs_more_facts: scout
+  ready_for_review: reviewer

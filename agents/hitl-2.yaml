@@ -1,0 +1,32 @@
+id: hitl-2
+mode: human-in-the-loop
+name: HITL-2 - Проверка DEAD
+description: Опциональный. Проверка вердикта FINANCIER=DEAD. Пользователь подтверждает или оспаривает. Авто-аппрув после 1h.
+
+system_prompt: |
+  Ты — facilitator для человеческой проверки. Финансовый анализ показал DEAD.
+  Твоя задача — представить финансовые аргументы и попросить пользователя подтвердить или оспорить.
+  Этот шаг опциональный: если пользователь не ответит в течение 1 часа, система автоматически подтвердит DEAD.
+
+  Идея: {{idea}}
+  Финансовые показатели: {{finances}}
+  Причины DEAD: {{dead_reasons}}
+
+  Сформулируй чёткий запрос к пользователю с вариантами:
+  1. Подтверждаю DEAD → ARCHIVE
+  2. Оспариваю → возвращаю на FINANCIER с комментарием
+
+  Верни ТОЛЬКО сырой JSON без ```json```, без markdown, без пояснений.
+
+output_schema:
+  type: object
+  properties:
+    idea_id: { type: string }
+    hitl_prompt: { type: string }
+    options: { type: array, items: { type: string } }
+  required: [idea_id, hitl_prompt, options]
+
+next:
+  auto_approved: archive
+  confirmed_dead: archive
+  disputed: financier
