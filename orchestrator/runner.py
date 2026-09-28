@@ -20,7 +20,9 @@ KILO_URL = os.environ.get("KILO_GATEWAY_URL", "https://gateway.kilo.ai/v1")
 KILO_API_KEY = os.environ.get("KILO_API_KEY", "")
 MODEL = os.environ.get("GITHUB_MODEL", "gpt-4o")
 GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "")
+PRIVATE_REPOSITORY = os.environ.get("PRIVATE_REPOSITORY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+PRIVATE_REPO_TOKEN = os.environ.get("PRIVATE_REPO_TOKEN", "")
 CONTINUE_RUN_ID = os.environ.get("CONTINUE_RUN_ID", "")
 HITL_DECISION = os.environ.get("HITL_DECISION", "")
 HITL1_TIMEOUT_SECONDS = int(os.environ.get("HITL1_TIMEOUT_SECONDS", "3600"))
@@ -54,12 +56,14 @@ from orchestrator.qdrant_store import (
 )
 
 
-def gh_request(method, path, **kwargs):
-    if not GITHUB_TOKEN:
+def gh_request(method, path, repo=None, token=None, **kwargs):
+    repo = repo or GITHUB_REPOSITORY
+    token = token or GITHUB_TOKEN
+    if not token or not repo:
         return None
-    url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}{path}"
+    url = f"https://api.github.com/repos/{repo}{path}"
     headers = kwargs.pop("headers", {})
-    headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+    headers["Authorization"] = f"Bearer {token}"
     headers["Accept"] = "application/vnd.github+json"
     resp = requests.request(method, url, headers=headers, timeout=60, **kwargs)
     resp.raise_for_status()
@@ -91,7 +95,9 @@ def create_github_issue(title, body, labels=None):
     payload = {"title": title, "body": body}
     if labels:
         payload["labels"] = labels
-    return gh_request("POST", "/issues", json=payload)
+    repo = PRIVATE_REPOSITORY or GITHUB_REPOSITORY
+    token = PRIVATE_REPO_TOKEN if PRIVATE_REPOSITORY else GITHUB_TOKEN
+    return gh_request("POST", "/issues", repo=repo, token=token, json=payload)
 
 
 def load_agent(agent_id: str) -> dict:
