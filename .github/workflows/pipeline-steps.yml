@@ -98,6 +98,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: idea-generator-${{ env.RUN_ID }}
-          path: artifacts/${{ env.RUN_ID }}/
+          path: private/artifacts/${{ env.RUN_ID }}/
           retention-days: 30
           if-no-files-found: warn
