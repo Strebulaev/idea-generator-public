@@ -33,7 +33,7 @@ PRIVATE_REPO_TOKEN = os.environ.get("PRIVATE_REPO_TOKEN", "")
 PRIVATE_REPOSITORY = os.environ.get("PRIVATE_REPOSITORY", "")
 
 POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "300"))
-WORKFLOW_FILE = os.environ.get("WORKFLOW_FILE", "pipeline.yml")
+WORKFLOW_FILE = os.environ.get("WORKFLOW_FILE", "pipeline-steps.yml")
 WORKFLOW_REF = os.environ.get("WORKFLOW_REF", "main")
 
 HITL1_TIMEOUT_SECONDS = int(os.environ.get("HITL1_TIMEOUT_SECONDS", "3600"))

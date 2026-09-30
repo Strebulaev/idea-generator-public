@@ -12,6 +12,7 @@ permissions:
 jobs:
   poller:
     runs-on: ubuntu-latest
+    timeout-minutes: 4
     env:
       QDRANT_URL: ${{ secrets.QDRANT_URL }}
       QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
@@ -19,6 +20,7 @@ jobs:
       GITHUB_REPOSITORY: ${{ github.repository }}
       PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
       PRIVATE_REPOSITORY: Strebulaev/idea-generator-private
+      POLL_ONCE: "true"
     steps:
       - name: Checkout public repo
         uses: actions/checkout@v4

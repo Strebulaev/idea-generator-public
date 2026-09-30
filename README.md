@@ -3,7 +3,7 @@
 This repository contains the public-facing code for the idea-generator project:
 - `poller.py` — polls Qdrant for pending tasks and dispatches workflow
 - `github_client.py` — GitHub API client for workflow and issue management
-- `.github/workflows/pipeline.yml` — main pipeline workflow
+- `.github/workflows/pipeline-steps.yml` — main pipeline workflow
 - `.github/workflows/poller.yml` — cron workflow that runs poller every 5 minutes
 
 ## Setup
