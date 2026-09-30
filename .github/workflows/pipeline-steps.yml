@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: ""
+      seed_idea:
+        description: "Pre-made idea (skips BRAINSTORMER) — plain text or JSON {id,title,description,tags}"
+        required: false
+        type: string
+        default: ""
       continue_run_id:
         description: "RUN_ID для продолжения после HITL"
         required: false
@@ -49,6 +54,7 @@ jobs:
       TOPIC: ${{ inputs.topic }}
       DOMAIN: ${{ inputs.domain }}
       CONSTRAINTS: ${{ inputs.constraints }}
+      SEED_IDEA: ${{ inputs.seed_idea }}
       CONTINUE_RUN_ID: ${{ inputs.continue_run_id || '' }}
       RUN_ID: ${{ inputs.continue_run_id || format('{0}-{1}', github.run_id, github.run_attempt) }}
       HITL_DECISION: ${{ inputs.hitl_decision || '' }}
