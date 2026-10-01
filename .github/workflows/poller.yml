@@ -19,7 +19,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
       PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-      PRIVATE_REPOSITORY: Strebulaev/idea-generator-private
+      PRIVATE_REPOSITORY: friendly-family/idea-generator-private
       POLL_ONCE: "true"
     steps:
       - name: Checkout public repo
@@ -27,7 +27,7 @@ jobs:
       - name: Checkout private repo
         uses: actions/checkout@v4
         with:
-          repository: Strebulaev/idea-generator-private
+          repository: friendly-family/idea-generator-private
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           path: private
       - name: Set up Python
