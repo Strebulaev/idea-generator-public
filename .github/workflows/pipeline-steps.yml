@@ -51,6 +51,7 @@ jobs:
       GITHUB_MODEL: ${{ secrets.IDEA_GENERATOR_MODEL || 'stepfun/step-3.7-flash:free' }}
       QDRANT_URL: ${{ secrets.QDRANT_URL }}
       QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      SEARCH_PROVIDERS: ${{ secrets.SEARCH_PROVIDERS }}
       TOPIC: ${{ inputs.topic }}
       DOMAIN: ${{ inputs.domain }}
       CONSTRAINTS: ${{ inputs.constraints }}
