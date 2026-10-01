@@ -64,3 +64,10 @@ def add_labels(issue_number: int, labels: list[str], repo: str | None = None) ->
     payload = {"labels": labels}
     result = _request("POST", path, repo=repo, json=payload)
     return result or {}
+
+
+def close_issue(issue_number: int, repo: str | None = None) -> dict[str, Any]:
+    path = f"/issues/{issue_number}"
+    payload = {"state": "closed"}
+    result = _request("PATCH", path, repo=repo, json=payload)
+    return result or {}

@@ -23,6 +23,7 @@ from github_client import (
     get_issue_comments,
     post_comment,
     add_labels,
+    close_issue,
 )
 
 QDRANT_URL = os.environ.get("QDRANT_URL", "")
@@ -115,7 +116,36 @@ def _get_latest_decision(comments: list[dict[str, Any]]) -> str | None:
     return latest_decision
 
 
-def process_hitl_decision(task: dict[str, Any], decision: str, hitl_stage: str) -> None:
+def _close_with_result_comment(issue_number: int | None, repo: str | None, emoji: str, decision: str, status: str) -> None:
+    if issue_number is None:
+        return
+    title = (get_issue(issue_number, repo=repo) or {}).get("title", "")
+    post_comment(
+        issue_number,
+        f"{emoji} {title}\n\nResolved: {decision}. Pipeline complete, status={status}.",
+        repo=repo,
+    )
+    close_issue(issue_number, repo=repo)
+
+
+def _acknowledge_dispute(issue_number: int | None, repo: str | None, resume_stage: str) -> None:
+    if issue_number is None:
+        return
+    title = (get_issue(issue_number, repo=repo) or {}).get("title", "")
+    post_comment(
+        issue_number,
+        f"🔁 {title}\n\nDisputed — resuming pipeline from {resume_stage}.",
+        repo=repo,
+    )
+
+
+def process_hitl_decision(
+    task: dict[str, Any],
+    decision: str,
+    hitl_stage: str,
+    issue_number: int | None = None,
+    repo: str | None = None,
+) -> None:
     task_id = task.get("task_id")
     if not task_id:
         return
@@ -145,6 +175,7 @@ def process_hitl_decision(task: dict[str, Any], decision: str, hitl_stage: str) 
                 "status": "succeeded",
                 "payload": {"reason": "HITL-1 confirmed RED"},
             })
+            _close_with_result_comment(issue_number, repo, "❌", "CONFIRM", "archived")
         elif decision == "DISPUTE":
             update_task(task_id, {
                 "status": "running",
@@ -160,6 +191,7 @@ def process_hitl_decision(task: dict[str, Any], decision: str, hitl_stage: str) 
                 "payload": {"decision": "disputed", "hitl_id": "HITL-1"},
             })
             _dispatch_continue(task, "dispute", "hitl-1")
+            _acknowledge_dispute(issue_number, repo, "SCOUT")
     elif hitl_stage == "hitl_2":
         if decision == "CONFIRM":
             update_task(task_id, {
@@ -183,6 +215,7 @@ def process_hitl_decision(task: dict[str, Any], decision: str, hitl_stage: str) 
                 "status": "succeeded",
                 "payload": {"reason": "HITL-2 confirmed DEAD"},
             })
+            _close_with_result_comment(issue_number, repo, "❌", "CONFIRM", "archived")
         elif decision == "DISPUTE":
             update_task(task_id, {
                 "status": "running",
@@ -198,6 +231,7 @@ def process_hitl_decision(task: dict[str, Any], decision: str, hitl_stage: str) 
                 "payload": {"decision": "disputed", "hitl_id": "HITL-2"},
             })
             _dispatch_continue(task, "dispute", "hitl-2")
+            _acknowledge_dispute(issue_number, repo, "FINANCIER")
     elif hitl_stage == "hitl_3":
         if decision == "GO":
             update_task(task_id, {
@@ -213,6 +247,7 @@ def process_hitl_decision(task: dict[str, Any], decision: str, hitl_stage: str) 
                 "status": "succeeded",
                 "payload": {"decision": "go", "hitl_id": "HITL-3"},
             })
+            _close_with_result_comment(issue_number, repo, "✅", "GO", "succeeded")
         elif decision == "NO-GO":
             update_task(task_id, {
                 "status": "archived",
@@ -235,6 +270,7 @@ def process_hitl_decision(task: dict[str, Any], decision: str, hitl_stage: str) 
                 "status": "succeeded",
                 "payload": {"reason": "HITL-3 NO-GO"},
             })
+            _close_with_result_comment(issue_number, repo, "❌", "NO-GO", "archived")
 
 
 def _dispatch_continue(task: dict[str, Any], decision: str, hitl_id: str) -> None:
@@ -306,7 +342,7 @@ def poll_hitl_issues() -> None:
 
         decision = _get_latest_decision(comments)
         if decision:
-            process_hitl_decision(task, decision, hitl_stage)
+            process_hitl_decision(task, decision, hitl_stage, issue_number=issue_number, repo=repo)
             continue
 
         created_at = issue.get("created_at", "")
@@ -338,7 +374,7 @@ def poll_hitl_issues() -> None:
                     "status": "succeeded",
                     "payload": {"task_id": task_id, "issue_number": issue_number},
                 })
-                process_hitl_decision(task, "CONFIRM", hitl_stage)
+                process_hitl_decision(task, "CONFIRM", hitl_stage, issue_number=issue_number, repo=repo)
 
 
 def main() -> None:
