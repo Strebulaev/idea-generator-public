@@ -44,6 +44,12 @@ permissions:
 jobs:
   pipeline:
     runs-on: ubuntu-latest
+    # No explicit timeout previously -- defaulted to GitHub's 6-hour cap,
+    # so a hung run (observed live 2026-10-01, cancelled manually after
+    # 40+ minutes) could silently burn CI minutes for hours. Longest real
+    # run observed: ~31 min pre-parallelization, ~9 min post (decision
+    # 0015); 60 is a generous margin above either.
+    timeout-minutes: 60
     env:
       KILO_GATEWAY_URL: ${{ secrets.KILO_GATEWAY_URL }}
       KILO_API_KEY: ${{ secrets.KILO_API_KEY }}
